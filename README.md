@@ -44,11 +44,18 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  REPO_NAME: caddy
+  CODENAME: jammy
+  COMPONENTS: main
+  ARCHITECTURES: amd64 arm64
+
 jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
       artifact_id: ${{ steps.upload-artifact.outputs.artifact-id }}
+      keyring: ${{ steps.create-apt-repo.outputs.keyring }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -59,13 +66,14 @@ jobs:
           ...
           do something funny to create your packages using e.g. fpm, nfpm, ....
           ...
-      - uses: morph027/apt-repo-action@v1
+      - uses: morph027/apt-repo-action@v2
         id: create-apt-repo
         with:
-          repo-name: my-fancy-tool
+          repo-name: ${{ env.REPO_NAME }}
           signing-key: ${{ secrets.SIGNING_KEY }}
-          codename: jammy
-          architectures: amd64 arm64
+          codename: ${{ env.CODENAME }}
+          components: ${{ env.COMPONENTS }}
+          architectures: ${{ env.ARCHITECTURES }}
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -81,4 +89,27 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+      - name: Adding summary
+        run: |
+          echo ':rocket:' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo 'curl -sfLo /etc/apt.trusted.gpg.d/${{ needs.build.outputs.keyring }}.asc ${{ steps.deploy-pages.outputs.page_url }}gpg.key' >> $GITHUB_STEP_SUMMARY
+          echo 'echo "deb ${{ steps.deploy-pages.outputs.page_url }} ${{ env.CODENAME }} ${{ env.COMPONENTS }}" >/etc/apt/sources.list.d/${{ env.REPO_NAME }}.list' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+```
+
+Due to current cache limitations ([A cache today is immutable and cannot be updated](https://github.com/actions/cache/blob/main/tips-and-workarounds.md#update-a-cache)), we can't store the
+reprepro database between workflow runs. To keep the current packages, you can set `import-from-repo-url` which will trigger an `apt-mirror` process on the existing repo before re-building the repo.
+
+```yaml
+...
+      - uses: morph027/apt-repo-action@v2
+        id: create-apt-repo
+        with:
+          ...
+          import-from-repo-url: |
+            deb-amd64 https://your-github-handle.github.io/your-github-repo-name/ jammy main
+            deb-arm64 https://your-github-handle.github.io/your-github-repo-name/ jammy main
+...
 ```
