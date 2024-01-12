@@ -26,16 +26,16 @@ reprepro="${reprepro_basedir} -C ${components}"
 gpg --import <<<"${SIGNING_KEY}" 2>&1 | tee /tmp/gpg.log
 mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" /tmp/gpg.log | sort -u | grep -o "[0-9A-Z]*" | tail -n1)
 keyring_version=0
-keyring_files=""
+keyring_files=()
 for fingerprint in "${fingerprints[@]}"; do
     IFS=':' read -r -a pub < <(gpg --list-keys --with-colons "${fingerprint}" | grep pub --color=never)
     creation_date="${pub[5]}"
-    keyring_version=$(( "${keyring_version}" + "${creation_date}" ))
+    keyring_version=$(("${keyring_version}" + "${creation_date}"))
     gpg --export "${fingerprint}" >"${keyring_name}-${creation_date}.gpg"
-    keyring_files+="${keyring_name}-${creation_date}.gpg "
+    keyring_files+=("${keyring_name}-${creation_date}.gpg")
 done
 
-cat > "${tmpdir}/keyring-nfpm.yaml" <<EOF
+cat >"${tmpdir}/keyring-nfpm.yaml" <<EOF
 name: ${keyring_name}
 arch: all
 version: ${keyring_version}
@@ -47,7 +47,7 @@ contents:
 EOF
 
 for keyring_file in "${keyring_files[@]}"; do
-cat >> "${tmpdir}/keyring-nfpm.yaml" <<EOF
+    cat >>"${tmpdir}/keyring-nfpm.yaml" <<EOF
   - src: ${keyring_file}
     dst: /etc/apt/trusted.gpg.d/
 EOF
@@ -110,5 +110,5 @@ cp -rv "${tmpdir}/.repo/${repo_name}"/{dists,pool} "${tmpdir}"/.repo/gpg.key "${
 # See https://github.com/actions/upload-pages-artifact#example-permissions-fix-for-linux
 chmod -c -R +rX "${repodir}"
 
-echo "dir=${repodir}" >> "${GITHUB_OUTPUT}"
-echo "keyring=${keyring_name}" >> "${GITHUB_OUTPUT}"
+echo "dir=${repodir}" >>"${GITHUB_OUTPUT}"
+echo "keyring=${keyring_name}" >>"${GITHUB_OUTPUT}"
