@@ -2,6 +2,9 @@
 # yamllint disable rule:line-length
 name: Create APT repository
 description: Create APT repository using reprepro
+branding:
+  icon: package
+  color: purple
 inputs:
   repo-name:
     description: >-
@@ -59,6 +62,10 @@ outputs:
     description: >-
       Directory which contains the APT repo.
     value: ${{ steps.create-apt-repo.outputs.dir }}
+  keyring:
+    description: >-
+      Keyring name.
+    value: ${{ steps.create-apt-repo.outputs.keyring }}
 runs:
   using: composite
   steps:
