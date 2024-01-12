@@ -26,9 +26,9 @@ inputs:
   codename:
     description: >-
       Codename. If unset, defaults to repo-name.
-  component:
+  components:
     description: >-
-      Component. If unset, defaults to main.
+      Components. If unset, defaults to main.
     default: main
   architectures:
     description: >-
@@ -99,7 +99,7 @@ runs:
         SUITE: ${{ inputs.suite }}
         LABEL: ${{ inputs.label }}
         CODENAME: ${{ inputs.codename }}
-        COMPONENT: ${{ inputs.component }}
+        COMPONENTS: ${{ inputs.components }}
         ARCHITECTURES: ${{ inputs.architectures }}
         LIMIT: ${{ inputs.limit }}
         SIGNING_KEY: ${{ inputs.signing-key }}
