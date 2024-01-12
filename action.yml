@@ -55,10 +55,10 @@ inputs:
       Homepage for keyring package.
       If unset, defaults to ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}
 outputs:
-  repodir:
+  dir:
     description: >-
       Directory which contains the APT repo.
-    value: ${{ steps.create-apt-repo.outputs.repodir }}
+    value: ${{ steps.create-apt-repo.outputs.dir }}
 runs:
   using: composite
   steps:
