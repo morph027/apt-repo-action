@@ -1,0 +1,107 @@
+---
+# yamllint disable rule:line-length
+name: Create APT repository
+description: Create APT repository using reprepro
+inputs:
+  repo-name:
+    description: >-
+      Repository name.
+    required: true
+  scan-dir:
+    description: >-
+      Scan this directory for packages to include in the repo.
+      If unset, defaults to ${PWD}.
+  keyring-name:
+    description: >-
+      Keyring name. If unset, defaults to repo-name-keyring.
+  origin:
+    description: >-
+      Origin. If unset, defaults to repo-name.
+  suite:
+    description: >-
+      Suite. If unset, defaults to repo-name.
+  label:
+    description: >-
+      Label. If unset, defaults to repo-name.
+  codename:
+    description: >-
+      Codename. If unset, defaults to repo-name.
+  component:
+    description: >-
+      Component. If unset, defaults to main.
+    default: main
+  architectures:
+    description: >-
+      Architectures. If unset, defaults to amd64.
+  limit:
+    description: >-
+      How many package versions to keep.
+      If unset, defaults to 0 (unlimited).
+  signing-key:
+    description: >-
+      Private gpg key for signing.
+      Please use Secrets!
+    required: true
+  import-from-repo-url:
+    description: >-
+      Import existing packages from this repo url.
+      Workaround for immutable GH actions cache.
+  maintainer:
+    description: >-
+      Package maintainer for keyring package.
+      If unset, defaults to apt-repo-action@${GITHUB_REPOSITORY_OWNER}
+  homepage:
+    description: >-
+      Homepage for keyring package.
+      If unset, defaults to ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}
+outputs:
+  repodir:
+    description: >-
+      Directory which contains the APT repo.
+    value: ${{ steps.create-apt-repo.outputs.repodir }}
+runs:
+  using: composite
+  steps:
+    - name: Setup reprepro debian repository
+      uses: myci-actions/add-deb-repo@11
+      with:
+        repo: deb https://packaging.gitlab.io/reprepro-multiple-versions jammy main
+        repo-name: reprepro-multiple-versions
+        keys-asc: https://packaging.gitlab.io/reprepro-multiple-versions/gpg.key
+        update: true
+    - name: Install reprepro
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: apt-mirror apt-transport-https reprepro
+    - name: Install nfpm
+      uses: robinraju/release-downloader@v1.8
+      with:
+        repository: goreleaser/nfpm
+        fileName: '*Linux_x86_64.tar.gz'
+        latest: true
+        extract: true
+        out-file-path: "/tmp/"
+    - name: Import from APT repo
+      id: import-from-apt-repo
+      run: ${{ github.action_path }}/import.sh
+      shell: bash
+      env:
+        IMPORT_FROM_REPO: ${{ inputs.import-from-repo-url }}
+    - name: Create APT repo
+      id: create-apt-repo
+      run: ${{ github.action_path }}/repo.sh
+      shell: bash
+      env:
+        REPO_NAME: ${{ inputs.repo-name }}
+        SCAN_DIR: ${{ inputs.scan-dir }}
+        KEYRING_NAME: ${{ inputs.keyring-name }}
+        ORIGIN: ${{ inputs.origin }}
+        SUITE: ${{ inputs.suite }}
+        LABEL: ${{ inputs.label }}
+        CODENAME: ${{ inputs.codename }}
+        COMPONENT: ${{ inputs.component }}
+        ARCHITECTURES: ${{ inputs.architectures }}
+        LIMIT: ${{ inputs.limit }}
+        SIGNING_KEY: ${{ inputs.signing-key }}
+        MAINTAINER: ${{ inputs.maintainer }}
+        HOMEPAGE: ${{ inputs.homepage }}
