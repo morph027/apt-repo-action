@@ -14,5 +14,8 @@ fi
 ) >/tmp/mirror.list
 apt-mirror /tmp/mirror.list
 mapfile -t packages < <(find /tmp/apt-mirror/mirror -type f -name '*.deb')
-# shellcheck disable=SC2048,SC2086
-cp -v ${packages[*]} .
+# shellcheck disable=SC2128
+if [ -n "${packages}" ]; then
+    # shellcheck disable=SC2048,SC2086
+    cp -v ${packages[*]} .
+fi
