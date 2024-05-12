@@ -114,8 +114,6 @@ runs:
         CODENAME: ${{ inputs.codename }}
         COMPONENTS: ${{ inputs.components }}
         ARCHITECTURES: ${{ inputs.architectures }}
-        SECTION: ${{ inputs.section }}
-        PRIORITY: ${{ inputs.priority }}
         LIMIT: ${{ inputs.limit }}
         SIGNING_KEY: ${{ inputs.signing-key }}
         MAINTAINER: ${{ inputs.maintainer }}
