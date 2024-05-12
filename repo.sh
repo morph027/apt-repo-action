@@ -23,6 +23,7 @@ homepage="${HOMEPAGE:-${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}}"
 reprepro_basedir="reprepro -b ${tmpdir}/.repo/${repo_name}"
 reprepro="${reprepro_basedir} -C ${components}"
 
+# import signing key, create keyring package
 gpg --import <<<"${SIGNING_KEY}" 2>&1 | tee /tmp/gpg.log
 mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" /tmp/gpg.log | sort -u | grep -o "[0-9A-Z]*" | tail -n1)
 keyring_version=0
@@ -55,6 +56,7 @@ done
 
 /tmp/nfpm package --config "${tmpdir}/keyring-nfpm.yaml" --packager deb
 
+# add repo config template if none exists
 mkdir -p "${tmpdir}/.repo/${repo_name}/conf"
 (
     echo "Origin: ${origin}"
@@ -72,7 +74,7 @@ if ! grep -q "^Components:.*${components}" "${tmpdir}/.repo/${repo_name}/conf/di
     sed -i "s,^Components: \(.*\),Components: \1 ${components}, " "${tmpdir}/.repo/${repo_name}/conf/distributions"
 fi
 
-# export key for curl, configure reprepro (sign w/ multiple keys)
+# export key, configure reprepro (sign w/ multiple keys)
 test -f "${tmpdir}/.repo/gpg.key" || gpg --export --armor "${fingerprints[@]}" >"${tmpdir}/.repo/gpg.key"
 sed -i 's,##SIGNING_KEY_ID##,'"${fingerprints[*]}"',' "${tmpdir}/.repo/${repo_name}/conf/distributions"
 mkdir -p "${scan_dir}/build-${codename}-dummy-dir-for-find-to-succeed"
@@ -80,13 +82,44 @@ mkdir -p "${scan_dir}/build-${codename}-dummy-dir-for-find-to-succeed"
 # add packages
 mapfile -t packages < <(find "${scan_dir}" -type f -name "*.deb")
 
+includedebs=()
+
+for package in "${packages[@]}"; do
+    package_name="$(dpkg -f "${package}" Package)"
+    package_version="$(dpkg -f "${package}" Version)"
+    package_arch="$(dpkg -f "${package}" Architecture)"
+    printf "\e[1;36m[%s %s] Checking for package %s %s (%s) in current repo cache ...\e[0m " "${codename}" "${components}" "${package_name}" "${package_version}" "${package_arch}"
+    case "${package_arch}" in
+    "all")
+        # shellcheck disable=SC2016
+        filter='Package (=='"${package_name}"'), $Version (=='"${package_version}"')'
+        ;;
+    *)
+        # shellcheck disable=SC2016
+        filter='Package (=='"${package_name}"'), $Version (=='"${package_version}"'), $Architecture (=='"${package_arch}"')'
+        ;;
+    esac
+    if [ -d "${CI_PROJECT_DIR}/.repo/${repo_name}/db" ]; then
+        if $reprepro listfilter "${codename}" "${filter}" | grep -q '.*'; then
+            printf "\e[0;32mOK\e[0m\n"
+            continue
+        fi
+    fi
+    if grep -q "${package##*/}" <<<"${includedebs[@]}"; then
+        printf "\e[0;32mOK\e[0m\n"
+        continue
+    fi
+    printf "\e\033[0;38;5;166mAdding\e[0m\n"
+    includedebs+=("${package}")
+done
+
 # shellcheck disable=SC2128
-if [ -n "${packages}" ]; then
+if [ -n "${includedebs}" ]; then
     $reprepro \
         -vvv \
         includedeb \
         "${codename}" \
-        "${packages[@]}"
+        "${includedebs[@]}"
 fi
 
 if ! $reprepro_basedir -v checkpool fast |& tee /tmp/missing; then
