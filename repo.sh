@@ -18,6 +18,7 @@ codename="${CODENAME:-${repo_name}}"
 components="${COMPONENTS:-main}"
 architectures="${ARCHITECTURES:-amd64}"
 section="${SECTION:-unset}"
+priority="${PRIORITY:-unset}"
 limit="${LIMIT:-0}"
 maintainer="${MAINTAINER:-apt-repo-action@${GITHUB_REPOSITORY_OWNER}}"
 homepage="${HOMEPAGE:-${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}}"
@@ -70,6 +71,9 @@ mkdir -p "${tmpdir}/.repo/${repo_name}/conf"
     echo "Limit: ${limit}"
     if [ "${section}" != "unset" ]; then
         echo "Section: ${section}"
+    fi
+    if [ "${priority}" != "unset" ]; then
+        echo "Priority: ${priority}"
     fi
     echo ""
 ) >>"${tmpdir}/.repo/${repo_name}/conf/distributions"

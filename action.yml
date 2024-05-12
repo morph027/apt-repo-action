@@ -39,6 +39,9 @@ inputs:
   section:
     description: >-
       Section (Optional)
+  priority:
+    description: >-
+      Priority (Optional)
   limit:
     description: >-
       How many package versions to keep.
@@ -112,6 +115,7 @@ runs:
         COMPONENTS: ${{ inputs.components }}
         ARCHITECTURES: ${{ inputs.architectures }}
         SECTION: ${{ inputs.section }}
+        PRIORITY: ${{ inputs.priority }}
         LIMIT: ${{ inputs.limit }}
         SIGNING_KEY: ${{ inputs.signing-key }}
         MAINTAINER: ${{ inputs.maintainer }}
