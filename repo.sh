@@ -56,19 +56,23 @@ done
 
 /tmp/nfpm package --config "${tmpdir}/keyring-nfpm.yaml" --packager deb
 
-# add repo config template if none exists
-mkdir -p "${tmpdir}/.repo/${repo_name}/conf"
-(
-    echo "Origin: ${origin}"
-    echo "Suite: ${suite}"
-    echo "Label: ${label}"
-    echo "Codename: ${codename}"
-    echo "Components: ${components}"
-    echo "Architectures: ${architectures}"
-    echo "SignWith: ${fingerprints[*]}"
-    echo "Limit: ${limit}"
-    echo ""
-) >>"${tmpdir}/.repo/${repo_name}/conf/distributions"
+if [ -d "${scan_dir}/.repo" ]; then
+    cp -rv "${scan_dir}/.repo" "${tmpdir}"/
+else
+    # add repo config template if none exists
+    mkdir -p "${tmpdir}/.repo/${repo_name}/conf"
+    (
+        echo "Origin: ${origin}"
+        echo "Suite: ${suite}"
+        echo "Label: ${label}"
+        echo "Codename: ${codename}"
+        echo "Components: ${components}"
+        echo "Architectures: ${architectures}"
+        echo "SignWith: ${fingerprints[*]}"
+        echo "Limit: ${limit}"
+        echo ""
+    ) >>"${tmpdir}/.repo/${repo_name}/conf/distributions"
+fi
 
 if ! grep -q "^Components:.*${components}" "${tmpdir}/.repo/${repo_name}/conf/distributions"; then
     sed -i "s,^Components: \(.*\),Components: \1 ${components}, " "${tmpdir}/.repo/${repo_name}/conf/distributions"
