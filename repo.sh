@@ -17,6 +17,7 @@ label="${LABEL:-${repo_name}}"
 codename="${CODENAME:-${repo_name}}"
 components="${COMPONENTS:-main}"
 architectures="${ARCHITECTURES:-amd64}"
+section="${SECTION:-unset}"
 limit="${LIMIT:-0}"
 maintainer="${MAINTAINER:-apt-repo-action@${GITHUB_REPOSITORY_OWNER}}"
 homepage="${HOMEPAGE:-${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}}"
@@ -67,6 +68,9 @@ mkdir -p "${tmpdir}/.repo/${repo_name}/conf"
     echo "Architectures: ${architectures}"
     echo "SignWith: ${fingerprints[*]}"
     echo "Limit: ${limit}"
+    if [ "${section}" != "unset" ]; then
+        echo "Section: ${section}"
+    fi
     echo ""
 ) >>"${tmpdir}/.repo/${repo_name}/conf/distributions"
 

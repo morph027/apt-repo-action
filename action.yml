@@ -36,6 +36,9 @@ inputs:
   architectures:
     description: >-
       Architectures. If unset, defaults to amd64.
+  section:
+    description: >-
+      Section (Optional)
   limit:
     description: >-
       How many package versions to keep.
@@ -108,6 +111,7 @@ runs:
         CODENAME: ${{ inputs.codename }}
         COMPONENTS: ${{ inputs.components }}
         ARCHITECTURES: ${{ inputs.architectures }}
+        SECTION: ${{ inputs.section }}
         LIMIT: ${{ inputs.limit }}
         SIGNING_KEY: ${{ inputs.signing-key }}
         MAINTAINER: ${{ inputs.maintainer }}
