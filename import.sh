@@ -7,12 +7,16 @@ if [[ -z "${IMPORT_FROM_REPO}" ]]; then
     exit 0
 fi
 
-(
-    echo "set base_path /tmp/apt-mirror"
+{
+    echo "set base_path ${APT_MIRROR_BASE_PATH:-/tmp/apt-mirror}"
     echo "set run_postmirror 0"
     echo -e "${IMPORT_FROM_REPO}"
-) >/tmp/mirror.list
-apt-mirror /tmp/mirror.list
+} >/tmp/mirror.list
+apt-mirror /tmp/mirror.list |& tee /tmp/mirror.log
+if grep -q -i failed /tmp/mirror.log; then
+    cat /tmp/mirror.log
+    exit 1
+fi
 mapfile -t packages < <(find /tmp/apt-mirror/mirror -type f -name '*.deb')
 # shellcheck disable=SC2128
 if [ -n "${packages}" ]; then
