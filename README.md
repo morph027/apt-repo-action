@@ -21,6 +21,7 @@ Can be deployed to GH pages using [upload-pages-artifact](https://github.com/act
 | `import-from-repo-url` | `false` | `n/a` | Import existing packages from this repo url. Workaround for immutable GH actions cache. |
 | `maintainer` | `false` | `apt-repo-action@${GITHUB_REPOSITORY_OWNER}` | Package maintainer for keyring package. |
 | `homepage` | `false` | `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}` | Homepage for keyring package. |
+| `override` | `false` | `n/a` | Optional override file (see [man page](https://manpages.debian.org/unstable/reprepro/reprepro.1.en.html#OVERRIDE_FILES)) |
 
 ## Outputs
 

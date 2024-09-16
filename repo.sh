@@ -20,6 +20,8 @@ architectures="${ARCHITECTURES:-amd64}"
 limit="${LIMIT:-0}"
 maintainer="${MAINTAINER:-apt-repo-action@${GITHUB_REPOSITORY_OWNER}}"
 homepage="${HOMEPAGE:-${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}}"
+# shellcheck disable=SC2153
+override="${OVERRIDE}"
 reprepro_basedir="reprepro -b ${tmpdir}/.repo/${repo_name}"
 reprepro="${reprepro_basedir} -C ${components}"
 
@@ -70,8 +72,11 @@ else
         echo "Architectures: ${architectures}"
         echo "SignWith: ${fingerprints[*]}"
         echo "Limit: ${limit}"
-        echo ""
     ) >>"${tmpdir}/.repo/${repo_name}/conf/distributions"
+    if [[ -n "${override}" ]]; then
+        echo "DebOverride: ${override##*/}"
+        cp "${override}" "${tmpdir}/.repo/${repo_name}/conf/${override##*/}"
+    fi
 fi
 
 if ! grep -q "^Components:.*${components}" "${tmpdir}/.repo/${repo_name}/conf/distributions"; then

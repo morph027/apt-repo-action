@@ -63,6 +63,9 @@ inputs:
     description: >-
       Homepage for keyring package.
       If unset, defaults to ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}
+  override:
+    description: >-
+      Optional override file (see [man page](https://manpages.debian.org/unstable/reprepro/reprepro.1.en.html#OVERRIDE_FILES))
 outputs:
   dir:
     description: >-
@@ -118,3 +121,4 @@ runs:
         SIGNING_KEY: ${{ inputs.signing-key }}
         MAINTAINER: ${{ inputs.maintainer }}
         HOMEPAGE: ${{ inputs.homepage }}
+        OVERRIDE: ${{ inputs.override }}
