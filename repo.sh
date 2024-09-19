@@ -74,8 +74,8 @@ else
         echo "Limit: ${limit}"
     ) >>"${tmpdir}/.repo/${repo_name}/conf/distributions"
     if [[ -n "${override}" ]]; then
-        echo "DebOverride: ${override##*/}"
-        cp "${override}" "${tmpdir}/.repo/${repo_name}/conf/${override##*/}"
+        echo "DebOverride: ${override##*/}" >>"${tmpdir}/.repo/${repo_name}/conf/distributions"
+        cp -v "${override}" "${tmpdir}/.repo/${repo_name}/conf/${override##*/}"
     fi
 fi
 
