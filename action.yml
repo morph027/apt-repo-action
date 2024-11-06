@@ -90,7 +90,7 @@ runs:
       with:
         packages: apt-mirror apt-transport-https reprepro
     - name: Install nfpm
-      uses: robinraju/release-downloader@v1.10
+      uses: robinraju/release-downloader@v1
       with:
         repository: goreleaser/nfpm
         fileName: '*Linux_x86_64.tar.gz'
