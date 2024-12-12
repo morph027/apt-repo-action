@@ -103,6 +103,7 @@ runs:
       shell: bash
       env:
         IMPORT_FROM_REPO: ${{ inputs.import-from-repo-url }}
+        IMPORT_FROM_REPO_FAILURE_ALLOW: ${{ inputs.IMPORT_FROM_REPO_FAILURE_ALLOW }}
     - name: Create APT repo
       id: create-apt-repo
       run: ${GITHUB_ACTION_PATH}/repo.sh

@@ -13,7 +13,7 @@ fi
 	echo -e "${IMPORT_FROM_REPO}"
 } >/tmp/mirror.list
 apt-mirror /tmp/mirror.list |& tee /tmp/mirror.log
-if grep -q -i failed /tmp/mirror.log; then
+if grep -q -i failed /tmp/mirror.log && [[ -n "${IMPORT_FROM_REPO_FAILURE_ALLOW}" ]]; then
 	cat /tmp/mirror.log
 	exit 1
 fi
