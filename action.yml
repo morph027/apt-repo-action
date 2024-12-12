@@ -55,6 +55,9 @@ inputs:
     description: >-
       Import existing packages from this repo url.
       Workaround for immutable GH actions cache.
+  import-from-repo-failure-allow:
+    description: >-
+      Do not fail on import errors (e.g. first run).
   maintainer:
     description: >-
       Package maintainer for keyring package.
@@ -103,7 +106,7 @@ runs:
       shell: bash
       env:
         IMPORT_FROM_REPO: ${{ inputs.import-from-repo-url }}
-        IMPORT_FROM_REPO_FAILURE_ALLOW: ${{ inputs.IMPORT_FROM_REPO_FAILURE_ALLOW }}
+        IMPORT_FROM_REPO_FAILURE_ALLOW: ${{ inputs.import-from-repo-failure-allow }}
     - name: Create APT repo
       id: create-apt-repo
       run: ${GITHUB_ACTION_PATH}/repo.sh

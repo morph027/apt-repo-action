@@ -19,6 +19,7 @@ Can be deployed to GH pages using [upload-pages-artifact](https://github.com/act
 | `limit` | `false` | `0` | How many package versions to keep (0 = unlimited). |
 | `signing-key` | `true` | `n/a` | Private gpg key for signing. Please use secrets! |
 | `import-from-repo-url` | `false` | `n/a` | Import existing packages from this repo url. Workaround for immutable GH actions cache. |
+| `import-from-repo-failure-allow` | `false` | `n/a` | Do not fail on import errors (e.g. first run). |
 | `maintainer` | `false` | `apt-repo-action@${GITHUB_REPOSITORY_OWNER}` | Package maintainer for keyring package. |
 | `homepage` | `false` | `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}` | Homepage for keyring package. |
 | `override` | `false` | `n/a` | Optional override file (see [man page](https://manpages.debian.org/unstable/reprepro/reprepro.1.en.html#OVERRIDE_FILES)) |

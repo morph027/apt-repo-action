@@ -13,9 +13,11 @@ fi
 	echo -e "${IMPORT_FROM_REPO}"
 } >/tmp/mirror.list
 apt-mirror /tmp/mirror.list |& tee /tmp/mirror.log
-if grep -q -i failed /tmp/mirror.log && [[ -n "${IMPORT_FROM_REPO_FAILURE_ALLOW}" ]]; then
+if grep -q -i failed /tmp/mirror.log; then
 	cat /tmp/mirror.log
-	exit 1
+    if [[ -z "${IMPORT_FROM_REPO_FAILURE_ALLOW}" ]]; then
+	    exit 1
+    fi
 fi
 mapfile -t packages < <(find /tmp/apt-mirror/mirror -type f -name '*.deb')
 # shellcheck disable=SC2128
