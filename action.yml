@@ -84,7 +84,7 @@ runs:
     - name: Setup reprepro debian repository
       uses: myci-actions/add-deb-repo@11
       with:
-        repo: deb https://packaging.gitlab.io/reprepro-multiple-versions jammy main
+        repo: deb https://packaging.gitlab.io/reprepro-multiple-versions noble main
         repo-name: reprepro-multiple-versions
         keys-asc: https://packaging.gitlab.io/reprepro-multiple-versions/gpg.key
         update: true
