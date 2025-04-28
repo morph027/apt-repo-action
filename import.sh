@@ -13,13 +13,13 @@ fi
     echo -e "${IMPORT_FROM_REPO}"
 } >/tmp/mirror.list
 apt-mirror /tmp/mirror.list |& tee /tmp/mirror.log
-if grep -q -i failed /tmp/mirror.log; then
+if grep -E -q -i 'failed|0 bytes will be downloaded' /tmp/mirror.log; then
     cat /tmp/mirror.log
     if [[ -z "${IMPORT_FROM_REPO_FAILURE_ALLOW}" ]]; then
         exit 1
     fi
 fi
-mapfile -t packages < <(find /tmp/apt-mirror/mirror -type f -regex "${IMPORT_FROM_REPO_PATTERN:-^.*\.deb}")
+mapfile -t packages < <(find /tmp/apt-mirror/mirror -type f -regex "${IMPORT_FROM_REPO_REGEX:-^.*\.deb}")
 # shellcheck disable=SC2128
 if [ -n "${packages}" ]; then
     # shellcheck disable=SC2048,SC2086
