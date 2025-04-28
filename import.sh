@@ -19,7 +19,7 @@ if grep -E -q -i 'failed|0 bytes will be downloaded' /tmp/mirror.log; then
         exit 1
     fi
 fi
-mapfile -t packages < <(find /tmp/apt-mirror/mirror -type f -regex "${IMPORT_FROM_REPO_PATTERN:-^.*\.deb}")
+mapfile -t packages < <(find /tmp/apt-mirror/mirror -type f -regex "${IMPORT_FROM_REPO_REGEX:-^.*\.deb}")
 # shellcheck disable=SC2128
 if [ -n "${packages}" ]; then
     # shellcheck disable=SC2048,SC2086
