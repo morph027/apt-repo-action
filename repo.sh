@@ -97,7 +97,7 @@ includedscs=()
 for package in "${packages[@]}"; do
     if [ "${package##*.}" == "dsc" ]; then
         package_name="${package##/*}"
-        package_name="${package%%_*}"
+        package_name="${package_name%%_*}"
         package_version="$(grep '^Version:' "${package}" | cut -d' ' -f2)"
         package_arch="source"
     else
@@ -142,14 +142,13 @@ if [ -n "${includedebs}" ]; then
         "${codename}" \
         "${includedebs[@]}"
 fi
-# shellcheck disable=SC2128
-if [ -n "${includedscs}" ]; then
+for includedsc in "${includedscs[@]}"; do
     $reprepro \
         -vvv \
         includedsc \
         "${codename}" \
-        "${includedscs[@]}"
-fi
+        "${includedsc}"
+done
 
 if ! $reprepro_basedir -v checkpool fast |& tee /tmp/missing; then
     printf "\e[0;36mStarting repo cache cleanup ...\e[0m\n"
