@@ -19,7 +19,7 @@ if grep -q -i failed /tmp/mirror.log; then
         exit 1
     fi
 fi
-mapfile -t packages < <(find /tmp/apt-mirror/mirror -type f -name '*.deb')
+mapfile -t packages < <(find /tmp/apt-mirror/mirror -type f -name "${IMPORT_FROM_REPO_PATTERN:-*.deb}")
 # shellcheck disable=SC2128
 if [ -n "${packages}" ]; then
     # shellcheck disable=SC2048,SC2086
