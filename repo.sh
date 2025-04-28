@@ -89,14 +89,22 @@ sed -i 's,##SIGNING_KEY_ID##,'"${fingerprints[*]}"',' "${tmpdir}/.repo/${repo_na
 mkdir -p "${scan_dir}/build-${codename}-dummy-dir-for-find-to-succeed"
 
 # add packages
-mapfile -t packages < <(find "${scan_dir}" -type f -name "*.deb")
+mapfile -t packages < <(find "${scan_dir}" -type f -regex '^.*\.\(deb\|dsc\)')
 
 includedebs=()
+includedscs=()
 
 for package in "${packages[@]}"; do
-    package_name="$(dpkg -f "${package}" Package)"
-    package_version="$(dpkg -f "${package}" Version)"
-    package_arch="$(dpkg -f "${package}" Architecture)"
+    if [ "${package##*.}" == "dsc" ]; then
+        package_name="${package##/*}"
+        package_name="${package%%_*}"
+        package_version="$(grep '^Version:' "${package}" | cut -d' ' -f2)"
+        package_arch="source"
+    else
+        package_name="$(dpkg -f "${package}" Package)"
+        package_version="$(dpkg -f "${package}" Version)"
+        package_arch="$(dpkg -f "${package}" Architecture)"
+    fi
     printf "\e[1;36m[%s %s] Checking for package %s %s (%s) in current repo cache ...\e[0m " "${codename}" "${components}" "${package_name}" "${package_version}" "${package_arch}"
     case "${package_arch}" in
     "all")
@@ -119,7 +127,11 @@ for package in "${packages[@]}"; do
         continue
     fi
     printf "\e\033[0;38;5;166mAdding\e[0m\n"
-    includedebs+=("${package}")
+    if [ "${package##*.}" == "dsc" ]; then
+        includedscs+=("${package}")
+    else
+        includedebs+=("${package}")
+    fi
 done
 
 # shellcheck disable=SC2128
@@ -129,6 +141,14 @@ if [ -n "${includedebs}" ]; then
         includedeb \
         "${codename}" \
         "${includedebs[@]}"
+fi
+# shellcheck disable=SC2128
+if [ -n "${includedscs}" ]; then
+    $reprepro \
+        -vvv \
+        includedsc \
+        "${codename}" \
+        "${includedscs[@]}"
 fi
 
 if ! $reprepro_basedir -v checkpool fast |& tee /tmp/missing; then
