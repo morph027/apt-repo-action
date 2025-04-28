@@ -55,9 +55,9 @@ inputs:
     description: >-
       Import existing packages from this repo url.
       Workaround for immutable GH actions cache.
-  import-from-repo-pattern:
+  import-from-repo-regex:
     description: >-
-      Pattern to apply to imported packages, e.g. filter for `*arm64*.deb`.
+      Regex to apply to imported packages, e.g. filter for `^.*arm64.*\.deb`.
   import-from-repo-failure-allow:
     description: >-
       Do not fail on import errors (e.g. first run).
@@ -109,7 +109,7 @@ runs:
       shell: bash
       env:
         IMPORT_FROM_REPO: ${{ inputs.import-from-repo-url }}
-        IMPORT_FROM_REPO_PATTERN: ${{ inputs.import-from-repo-pattern }}
+        IMPORT_FROM_REPO_REGEX: ${{ inputs.import-from-repo-regex }}
         IMPORT_FROM_REPO_FAILURE_ALLOW: ${{ inputs.import-from-repo-failure-allow }}
     - name: Create APT repo
       id: create-apt-repo
