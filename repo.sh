@@ -96,7 +96,7 @@ includedscs=()
 
 for package in "${packages[@]}"; do
     if [ "${package##*.}" == "dsc" ]; then
-        package_name="${package##/*}"
+        package_name="${package##*/}"
         package_name="${package_name%%_*}"
         package_version="$(grep '^Version:' "${package}" | cut -d' ' -f2)"
         package_arch="source"
