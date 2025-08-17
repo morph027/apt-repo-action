@@ -33,6 +33,7 @@ keyring_files=()
 for fingerprint in "${fingerprints[@]}"; do
     keygrip="$(gpg --list-secret-keys --with-keygrip "${fingerprint}" | grep -m1 'Keygrip =' | grep -Eo "[0-9A-Z]{40}")"
     if [[ -n "${SIGNING_KEY_PASSPHRASE}" ]]; then
+        pgrep -f bin/gpg-agent >/dev/null 2>&1 || gpg-agent --verbose --daemon --log-file /tmp/gpg-agent.log --allow-preset-passphrase
         /usr/lib/gnupg2/gpg-preset-passphrase --verbose --preset --passphrase "${SIGNING_KEY_PASSPHRASE}" "${keygrip}"
     fi
     IFS=':' read -r -a pub < <(gpg --list-keys --with-colons "${fingerprint}" | grep pub --color=never)
