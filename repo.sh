@@ -26,7 +26,7 @@ reprepro_basedir="reprepro -b ${tmpdir}/.repo/${repo_name}"
 reprepro="${reprepro_basedir} -C ${components}"
 
 # import signing key, create keyring package
-mkdir -p ~/.gnupg/
+install -d -m 700 ~/.gnupg/
 echo "allow-preset-passphrase" >>~/.gnupg/gpg-agent.conf
 gpg --batch --import <<<"${SIGNING_KEY}" 2>&1 | tee /tmp/gpg.log
 mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" /tmp/gpg.log | sort -u | grep -o "[0-9A-Z]*" | tail -n1)
