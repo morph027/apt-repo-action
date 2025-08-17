@@ -31,6 +31,10 @@ mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" /tmp/gpg.log | sort -u | gr
 keyring_version=0
 keyring_files=()
 for fingerprint in "${fingerprints[@]}"; do
+    keygrip="$(gpg --list-secret-keys --with-keygrip "${fingerprint}" | grep -m1 'Keygrip =' | grep -Eo "[0-9A-Z]{40}")"
+    if [[ -n "${SIGNING_KEY_PASSPHRASE}" ]]; then
+        /usr/lib/gnupg2/gpg-preset-passphrase --verbose --preset --passphrase "${SIGNING_KEY_PASSPHRASE}" "${keygrip}"
+    fi
     IFS=':' read -r -a pub < <(gpg --list-keys --with-colons "${fingerprint}" | grep pub --color=never)
     creation_date="${pub[5]}"
     keyring_version=$(("${keyring_version}" + "${creation_date}"))

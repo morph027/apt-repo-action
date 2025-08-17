@@ -18,6 +18,7 @@ Can be deployed to GH pages using [upload-pages-artifact](https://github.com/act
 | `architectures` | `false` | `amd64` | [Architectures](https://wiki.debian.org/DebianRepository/Format#Architectures) |
 | `limit` | `false` | `0` | How many package versions to keep (0 = unlimited). |
 | `signing-key` | `true` | `n/a` | Private gpg key for signing. Please use secrets! |
+| `signing-key-passphrase` | `false` | `n/a` | **Recommended** Passphrase for private gpg signing key. Please use secrets! |
 | `import-from-repo-url` | `false` | `n/a` | Import existing packages from this repo url. Workaround for immutable GH actions cache. |
 | `import-from-repo-regex` | `false` | `n/a` | Regex to apply to imported packages, e.g. filter for `^.*arm64.*\.deb`. |
 | `import-from-repo-failure-allow` | `false` | `n/a` | Do not fail on import errors (e.g. first run). |
