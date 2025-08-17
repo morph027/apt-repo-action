@@ -26,15 +26,13 @@ reprepro_basedir="reprepro -b ${tmpdir}/.repo/${repo_name}"
 reprepro="${reprepro_basedir} -C ${components}"
 
 # import signing key, create keyring package
-gpg --import <<<"${SIGNING_KEY}" 2>&1 | tee /tmp/gpg.log
+gpg --batch --import <<<"${SIGNING_KEY}" 2>&1 | tee /tmp/gpg.log
 mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" /tmp/gpg.log | sort -u | grep -o "[0-9A-Z]*" | tail -n1)
 keyring_version=0
 keyring_files=()
 for fingerprint in "${fingerprints[@]}"; do
     keygrip="$(gpg --list-secret-keys --with-keygrip "${fingerprint}" | grep -m1 'Keygrip =' | grep -Eo "[0-9A-Z]{40}")"
     if [[ -n "${SIGNING_KEY_PASSPHRASE}" ]]; then
-        GPG_TTY="$(tty)"
-        export GPG_TTY
         pgrep -f bin/gpg-agent >/dev/null 2>&1 || gpg-agent --verbose --daemon --log-file /tmp/gpg-agent.log --allow-preset-passphrase
         /usr/lib/gnupg2/gpg-preset-passphrase --verbose --preset --passphrase "${SIGNING_KEY_PASSPHRASE}" "${keygrip}"
     fi
