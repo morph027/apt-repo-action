@@ -70,7 +70,7 @@ jobs:
           ...
           do something funny to create your packages using e.g. fpm, nfpm, ....
           ...
-      - uses: morph027/apt-repo-action@v2
+      - uses: morph027/apt-repo-action@v3
         id: create-apt-repo
         with:
           repo-name: ${{ env.REPO_NAME }}
@@ -108,7 +108,7 @@ reprepro database between workflow runs. To keep the current packages, you can s
 
 ```yaml
 ...
-      - uses: morph027/apt-repo-action@v2
+      - uses: morph027/apt-repo-action@v3
         id: create-apt-repo
         with:
           ...
