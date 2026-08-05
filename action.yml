@@ -96,11 +96,11 @@ runs:
         keys-asc: https://packaging.gitlab.io/reprepro-multiple-versions/gpg.key
         update: true
     - name: Install reprepro
-      uses: awalsh128/cache-apt-pkgs-action@v1.4.3
+      uses: awalsh128/cache-apt-pkgs-action@v1.6.3
       with:
         packages: apt-mirror apt-transport-https reprepro
     - name: Install nfpm
-      uses: robinraju/release-downloader@v1.11
+      uses: robinraju/release-downloader@v1.13
       with:
         repository: goreleaser/nfpm
         fileName: '*Linux_x86_64.tar.gz'
