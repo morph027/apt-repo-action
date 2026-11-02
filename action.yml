@@ -95,7 +95,7 @@ runs:
     - name: Setup reprepro debian repository
       uses: myci-actions/add-deb-repo@11
       with:
-        repo: deb https://packaging.gitlab.io/reprepro-multiple-versions ${{ steps.runner-codename.outputs.codename }} main
+        repo: deb https://packaging.gitlab.io/reprepro-multiple-versions/${{ steps.runner-codename.outputs.codename }} ${{ steps.runner-codename.outputs.codename }} main
         repo-name: reprepro-multiple-versions
         keys-asc: https://packaging.gitlab.io/reprepro-multiple-versions/gpg.key
         update: true
