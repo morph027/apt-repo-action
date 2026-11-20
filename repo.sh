@@ -29,6 +29,14 @@ signing_enabled=""
 fingerprints=()
 if [[ -n "${SIGNING_KEY}" ]]; then
     signing_enabled="1"
+elif [[ -n "${SIGNING_KEY_PASSPHRASE}" ]]; then
+    # a passphrase without a key almost certainly means a missing/misnamed secret
+    echo "::error title=Missing signing-key::signing-key-passphrase is set but signing-key is empty. Check that the signing-key secret exists and is available to this workflow run."
+    exit 1
+elif [[ "${ALLOW_UNSIGNED,,}" != "true" ]]; then
+    # fail closed: an empty secret (typo, fork PR, Dependabot, ...) must not silently downgrade a signed repo
+    echo "::error title=Missing signing-key::signing-key is empty. Provide a signing-key, or set allow-unsigned: true to explicitly publish an unsigned repository."
+    exit 1
 else
     echo "::warning title=Unsigned repository::No signing-key provided, so the repository will be published unsigned. Without a signature, clients cannot verify that packages are authentic and untampered, and APT will only accept the repo when explicitly marked as trusted (e.g. [trusted=yes]). Providing a signing-key is strongly recommended."
 fi
@@ -39,6 +47,10 @@ if [[ -n "${signing_enabled}" ]]; then
     echo "allow-preset-passphrase" >>~/.gnupg/gpg-agent.conf
     gpg --batch --import <<<"${SIGNING_KEY}" 2>&1 | tee /tmp/gpg.log
     mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" /tmp/gpg.log | sort -u | grep -o "[0-9A-Z]*" | tail -n1)
+    if [[ "${#fingerprints[@]}" -eq 0 ]]; then
+        echo "::error title=Invalid signing-key::Could not import signing-key, see gpg output above."
+        exit 1
+    fi
     keyring_version=0
     keyring_files=()
     for fingerprint in "${fingerprints[@]}"; do
@@ -97,17 +109,55 @@ else
     fi
 fi
 
-if ! grep -q "^Components:.*${components}" "${tmpdir}/.repo/${repo_name}/conf/distributions"; then
-    sed -i "s,^Components: \(.*\),Components: \1 ${components}, " "${tmpdir}/.repo/${repo_name}/conf/distributions"
+# reprepro accepts conf/distributions as a file or as a directory of *.conf files
+conf_dir="${tmpdir}/.repo/${repo_name}/conf"
+if [[ -d "${conf_dir}/distributions" ]]; then
+    mapfile -t dist_confs < <(find "${conf_dir}/distributions" -maxdepth 1 -type f -name '*.conf' | sort)
+else
+    dist_confs=("${conf_dir}/distributions")
 fi
+
+for dist_conf in "${dist_confs[@]}"; do
+    if ! grep -q "^Components:.*${components}" "${dist_conf}"; then
+        sed -i "s,^Components: \(.*\),Components: \1 ${components}, " "${dist_conf}"
+    fi
+done
 
 # export key, configure reprepro (sign w/ multiple keys)
 if [[ -n "${signing_enabled}" ]]; then
     test -f "${tmpdir}/.repo/gpg.key" || gpg --export --armor "${fingerprints[@]}" >"${tmpdir}/.repo/gpg.key"
-    sed -i 's,##SIGNING_KEY_ID##,'"${fingerprints[*]}"',' "${tmpdir}/.repo/${repo_name}/conf/distributions"
+    for dist_conf in "${dist_confs[@]}"; do
+        sed -i 's,##SIGNING_KEY_ID##,'"${fingerprints[*]}"',' "${dist_conf}"
+        # add SignWith to every distribution stanza lacking one (e.g. config created by a previous unsigned run)
+        # field names are case-insensitive for reprepro, stanzas are separated by blank lines
+        awk -v signwith="SignWith: ${fingerprints[*]}" '
+            function flush() {
+                for (i = 1; i <= n; i++) print buf[i]
+                if (fields && !has_signwith) print signwith
+                n = 0; fields = 0; has_signwith = 0
+            }
+            /^[[:space:]]*$/ { flush(); print; next }
+            {
+                buf[++n] = $0
+                if ($0 !~ /^[[:space:]#]/) fields = 1
+                if (tolower($0) ~ /^signwith:/) has_signwith = 1
+            }
+            END { flush() }
+        ' "${dist_conf}" >"${dist_conf}.new"
+        if ! cmp -s "${dist_conf}" "${dist_conf}.new"; then
+            echo "::notice title=SignWith added::Added missing SignWith to ${dist_conf##*/.repo/}, the repository will be signed from now on."
+        fi
+        mv "${dist_conf}.new" "${dist_conf}"
+    done
 else
-    # drop any SignWith from user-provided config, there is no key to sign with
-    sed -i '/^SignWith:/d' "${tmpdir}/.repo/${repo_name}/conf/distributions"
+    # no key to sign with: drop SignWith from existing config (case-insensitive, like reprepro) and stale public key
+    for dist_conf in "${dist_confs[@]}"; do
+        if grep -qi '^signwith:' "${dist_conf}"; then
+            echo "::warning title=SignWith removed::Removed SignWith from ${dist_conf##*/.repo/} because no signing-key was provided."
+            sed -i '/^signwith:/Id' "${dist_conf}"
+        fi
+    done
+    rm -f "${tmpdir}/.repo/gpg.key"
 fi
 mkdir -p "${scan_dir}/build-${codename}-dummy-dir-for-find-to-succeed"
 
@@ -127,6 +177,11 @@ for package in "${packages[@]}"; do
         package_name="$(dpkg -f "${package}" Package)"
         package_version="$(dpkg -f "${package}" Version)"
         package_arch="$(dpkg -f "${package}" Architecture)"
+    fi
+    if [[ -z "${signing_enabled}" && "${package_name}" == "${keyring_name}" ]]; then
+        # e.g. mirrored via import-from-repo-url from a previously signed repo
+        printf "\e[0;33mSkipping keyring package %s (repository is unsigned)\e[0m\n" "${package##*/}"
+        continue
     fi
     printf "\e[1;36m[%s %s] Checking for package %s %s (%s) in current repo cache ...\e[0m " "${codename}" "${components}" "${package_name}" "${package_version}" "${package_arch}"
     case "${package_arch}" in
@@ -189,8 +244,20 @@ if ! $reprepro_basedir -v checkpool fast |& tee /tmp/missing; then
     done
 fi
 
+if [[ -z "${signing_enabled}" ]]; then
+    # drop keyring package left over from a previously signed repo
+    if $reprepro_basedir listfilter "${codename}" "Package (== ${keyring_name})" | grep -q '.*'; then
+        echo "::warning title=Keyring package removed::Removed ${keyring_name} from the repository because it is unsigned."
+        $reprepro_basedir -v remove "${codename}" "${keyring_name}"
+    fi
+fi
+
+# always (re-)export, so a changed SignWith (signed <-> unsigned) is applied even if no packages changed.
+# reprepro writes InRelease/Release.gpg when signing and deletes stale ones otherwise.
+$reprepro_basedir -v export
+
 cp -rv "${tmpdir}/.repo/${repo_name}"/{dists,pool} "${repodir}"/
-if [[ -f "${tmpdir}/.repo/gpg.key" ]]; then
+if [[ -n "${signing_enabled}" ]]; then
     cp -v "${tmpdir}/.repo/gpg.key" "${repodir}"/
 fi
 
@@ -198,6 +265,5 @@ fi
 chmod -c -R +rX "${repodir}"
 
 echo "dir=${repodir}" >>"${GITHUB_OUTPUT}"
-if [[ -n "${signing_enabled}" ]]; then
-    echo "keyring=${keyring_name}" >>"${GITHUB_OUTPUT}"
-fi
+# empty if unsigned
+echo "keyring=${signing_enabled:+${keyring_name}}" >>"${GITHUB_OUTPUT}"

@@ -17,6 +17,7 @@ inputs:
   keyring-name:
     description: >-
       Keyring name. If unset, defaults to repo-name-keyring.
+      Only used for signed repositories.
   origin:
     description: >-
       Origin. If unset, defaults to repo-name.
@@ -49,12 +50,18 @@ inputs:
   signing-key:
     description: >-
       Private gpg key for signing.
-      If omitted, the repository will not be signed.
+      Required unless allow-unsigned is true.
       Please use Secrets!
   signing-key-passphrase:
     description: >-
-      Passphrase for private gpg signing key.
+      Passphrase for signing-key (if the key is protected).
       Please use Secrets!
+  allow-unsigned:
+    description: >-
+      Set to true to explicitly publish an unsigned repository when signing-key is empty.
+      Without it, an empty signing-key (e.g. missing secret) fails the action.
+      Not recommended, clients need [trusted=yes] to use an unsigned repository.
+    default: 'false'
   import-from-repo-url:
     description: >-
       Import existing packages from this repo url.
@@ -67,11 +74,11 @@ inputs:
       Do not fail on import errors (e.g. first run).
   maintainer:
     description: >-
-      Package maintainer for keyring package.
+      Package maintainer for keyring package (signed repositories only).
       If unset, defaults to apt-repo-action@${GITHUB_REPOSITORY_OWNER}
   homepage:
     description: >-
-      Homepage for keyring package.
+      Homepage for keyring package (signed repositories only).
       If unset, defaults to ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}
   override:
     description: >-
@@ -83,7 +90,7 @@ outputs:
     value: ${{ steps.create-apt-repo.outputs.dir }}
   keyring:
     description: >-
-      Keyring name.
+      Keyring name. Empty if the repository is unsigned.
     value: ${{ steps.create-apt-repo.outputs.keyring }}
 runs:
   using: composite
@@ -136,6 +143,7 @@ runs:
         LIMIT: ${{ inputs.limit }}
         SIGNING_KEY: ${{ inputs.signing-key }}
         SIGNING_KEY_PASSPHRASE: ${{ inputs.signing-key-passphrase }}
+        ALLOW_UNSIGNED: ${{ inputs.allow-unsigned }}
         MAINTAINER: ${{ inputs.maintainer }}
         HOMEPAGE: ${{ inputs.homepage }}
         OVERRIDE: ${{ inputs.override }}
