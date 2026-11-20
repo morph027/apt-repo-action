@@ -17,7 +17,7 @@ Can be deployed to GH pages using [upload-pages-artifact](https://github.com/act
 | `components` | `false` | `main` | [Components](https://wiki.debian.org/DebianRepository/Format#Components) |
 | `architectures` | `false` | `amd64` | [Architectures](https://wiki.debian.org/DebianRepository/Format#Architectures) |
 | `limit` | `false` | `0` | How many package versions to keep (0 = unlimited). |
-| `signing-key` | `true` | `n/a` | Private gpg key for signing. Please use secrets! |
+| `signing-key` | `false` | `n/a` | **Recommended** Private gpg key for signing. If omitted, the repo will be unsigned (no `SignWith`, no `gpg.key`, no keyring package). Please use secrets! |
 | `signing-key-passphrase` | `false` | `n/a` | **Recommended** Passphrase for private gpg signing key. Please use secrets! |
 | `import-from-repo-url` | `false` | `n/a` | Import existing packages from this repo url. Workaround for immutable GH actions cache. |
 | `import-from-repo-regex` | `false` | `n/a` | Regex to apply to imported packages, e.g. filter for `^.*arm64.*\.deb`. |
@@ -31,7 +31,7 @@ Can be deployed to GH pages using [upload-pages-artifact](https://github.com/act
 | Output | Description |
 | ------ | ----------- |
 | `dir` | The directory containing the ready to deploy APT repo |
-| `keyring` | The name of the created keyring |
+| `keyring` | The name of the created keyring (empty if unsigned) |
 
 ## Usage Example
 
@@ -94,12 +94,20 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
       - name: Adding summary
+        env:
+          KEYRING: ${{ needs.build.outputs.keyring }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
           echo ':rocket:' >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo 'curl -sfLo /etc/apt.trusted.gpg.d/${{ needs.build.outputs.keyring }}.asc ${{ steps.deploy-pages.outputs.page_url }}gpg.key' >> $GITHUB_STEP_SUMMARY
-          echo 'echo "deb ${{ steps.deploy-pages.outputs.page_url }} ${{ env.CODENAME }} ${{ env.COMPONENTS }}" >/etc/apt/sources.list.d/${{ env.REPO_NAME }}.list' >> $GITHUB_STEP_SUMMARY
+          if [ -n "${KEYRING}" ]; then
+            echo "curl -sfLo /etc/apt/trusted.gpg.d/${KEYRING}.asc ${PAGE_URL}gpg.key" >> $GITHUB_STEP_SUMMARY
+            echo "echo \"deb ${PAGE_URL} ${CODENAME} ${COMPONENTS}\" >/etc/apt/sources.list.d/${REPO_NAME}.list" >> $GITHUB_STEP_SUMMARY
+          else
+            # unsigned repo (no signing-key), APT needs to be told to trust it
+            echo "echo \"deb [trusted=yes] ${PAGE_URL} ${CODENAME} ${COMPONENTS}\" >/etc/apt/sources.list.d/${REPO_NAME}.list" >> $GITHUB_STEP_SUMMARY
+          fi
           echo '```' >> $GITHUB_STEP_SUMMARY
 ```
 

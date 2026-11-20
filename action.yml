@@ -49,8 +49,8 @@ inputs:
   signing-key:
     description: >-
       Private gpg key for signing.
+      If omitted, the repository will not be signed.
       Please use Secrets!
-    required: true
   signing-key-passphrase:
     description: >-
       Passphrase for private gpg signing key.

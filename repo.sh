@@ -25,26 +25,35 @@ override="${OVERRIDE}"
 reprepro_basedir="reprepro -b ${tmpdir}/.repo/${repo_name}"
 reprepro="${reprepro_basedir} -C ${components}"
 
-# import signing key, create keyring package
-install -d -m 700 ~/.gnupg/
-echo "allow-preset-passphrase" >>~/.gnupg/gpg-agent.conf
-gpg --batch --import <<<"${SIGNING_KEY}" 2>&1 | tee /tmp/gpg.log
-mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" /tmp/gpg.log | sort -u | grep -o "[0-9A-Z]*" | tail -n1)
-keyring_version=0
-keyring_files=()
-for fingerprint in "${fingerprints[@]}"; do
-    keygrip="$(gpg --list-secret-keys --with-keygrip "${fingerprint}" | grep -m1 'Keygrip =' | grep -Eo "[0-9A-Z]{40}")"
-    if [[ -n "${SIGNING_KEY_PASSPHRASE}" ]]; then
-        /usr/lib/gnupg2/gpg-preset-passphrase --verbose --preset --passphrase "${SIGNING_KEY_PASSPHRASE}" "${keygrip}"
-    fi
-    IFS=':' read -r -a pub < <(gpg --list-keys --with-colons "${fingerprint}" | grep pub --color=never)
-    creation_date="${pub[5]}"
-    keyring_version=$(("${keyring_version}" + "${creation_date}"))
-    gpg --export "${fingerprint}" >"${keyring_name}-${creation_date}.gpg"
-    keyring_files+=("${keyring_name}-${creation_date}.gpg")
-done
+signing_enabled=""
+fingerprints=()
+if [[ -n "${SIGNING_KEY}" ]]; then
+    signing_enabled="1"
+else
+    echo "::warning title=Unsigned repository::No signing-key provided, so the repository will be published unsigned. Without a signature, clients cannot verify that packages are authentic and untampered, and APT will only accept the repo when explicitly marked as trusted (e.g. [trusted=yes]). Providing a signing-key is strongly recommended."
+fi
 
-cat >"${tmpdir}/keyring-nfpm.yaml" <<EOF
+if [[ -n "${signing_enabled}" ]]; then
+    # import signing key, create keyring package
+    install -d -m 700 ~/.gnupg/
+    echo "allow-preset-passphrase" >>~/.gnupg/gpg-agent.conf
+    gpg --batch --import <<<"${SIGNING_KEY}" 2>&1 | tee /tmp/gpg.log
+    mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" /tmp/gpg.log | sort -u | grep -o "[0-9A-Z]*" | tail -n1)
+    keyring_version=0
+    keyring_files=()
+    for fingerprint in "${fingerprints[@]}"; do
+        keygrip="$(gpg --list-secret-keys --with-keygrip "${fingerprint}" | grep -m1 'Keygrip =' | grep -Eo "[0-9A-Z]{40}")"
+        if [[ -n "${SIGNING_KEY_PASSPHRASE}" ]]; then
+            /usr/lib/gnupg2/gpg-preset-passphrase --verbose --preset --passphrase "${SIGNING_KEY_PASSPHRASE}" "${keygrip}"
+        fi
+        IFS=':' read -r -a pub < <(gpg --list-keys --with-colons "${fingerprint}" | grep pub --color=never)
+        creation_date="${pub[5]}"
+        keyring_version=$(("${keyring_version}" + "${creation_date}"))
+        gpg --export "${fingerprint}" >"${keyring_name}-${creation_date}.gpg"
+        keyring_files+=("${keyring_name}-${creation_date}.gpg")
+    done
+
+    cat >"${tmpdir}/keyring-nfpm.yaml" <<EOF
 name: ${keyring_name}
 arch: all
 version: ${keyring_version}
@@ -55,14 +64,15 @@ homepage: ${homepage}
 contents:
 EOF
 
-for keyring_file in "${keyring_files[@]}"; do
-    cat >>"${tmpdir}/keyring-nfpm.yaml" <<EOF
+    for keyring_file in "${keyring_files[@]}"; do
+        cat >>"${tmpdir}/keyring-nfpm.yaml" <<EOF
   - src: ${keyring_file}
     dst: /etc/apt/trusted.gpg.d/
 EOF
-done
+    done
 
-/tmp/nfpm package --config "${tmpdir}/keyring-nfpm.yaml" --packager deb
+    /tmp/nfpm package --config "${tmpdir}/keyring-nfpm.yaml" --packager deb
+fi
 
 if [ -d "${scan_dir}/.repo" ]; then
     cp -rv "${scan_dir}/.repo" "${tmpdir}"/
@@ -76,7 +86,9 @@ else
         echo "Codename: ${codename}"
         echo "Components: ${components}"
         echo "Architectures: ${architectures}"
-        echo "SignWith: ${fingerprints[*]}"
+        if [[ -n "${signing_enabled}" ]]; then
+            echo "SignWith: ${fingerprints[*]}"
+        fi
         echo "Limit: ${limit}"
     ) >>"${tmpdir}/.repo/${repo_name}/conf/distributions"
     if [[ -n "${override}" ]]; then
@@ -90,8 +102,13 @@ if ! grep -q "^Components:.*${components}" "${tmpdir}/.repo/${repo_name}/conf/di
 fi
 
 # export key, configure reprepro (sign w/ multiple keys)
-test -f "${tmpdir}/.repo/gpg.key" || gpg --export --armor "${fingerprints[@]}" >"${tmpdir}/.repo/gpg.key"
-sed -i 's,##SIGNING_KEY_ID##,'"${fingerprints[*]}"',' "${tmpdir}/.repo/${repo_name}/conf/distributions"
+if [[ -n "${signing_enabled}" ]]; then
+    test -f "${tmpdir}/.repo/gpg.key" || gpg --export --armor "${fingerprints[@]}" >"${tmpdir}/.repo/gpg.key"
+    sed -i 's,##SIGNING_KEY_ID##,'"${fingerprints[*]}"',' "${tmpdir}/.repo/${repo_name}/conf/distributions"
+else
+    # drop any SignWith from user-provided config, there is no key to sign with
+    sed -i '/^SignWith:/d' "${tmpdir}/.repo/${repo_name}/conf/distributions"
+fi
 mkdir -p "${scan_dir}/build-${codename}-dummy-dir-for-find-to-succeed"
 
 # add packages
@@ -172,10 +189,15 @@ if ! $reprepro_basedir -v checkpool fast |& tee /tmp/missing; then
     done
 fi
 
-cp -rv "${tmpdir}/.repo/${repo_name}"/{dists,pool} "${tmpdir}"/.repo/gpg.key "${repodir}"/
+cp -rv "${tmpdir}/.repo/${repo_name}"/{dists,pool} "${repodir}"/
+if [[ -f "${tmpdir}/.repo/gpg.key" ]]; then
+    cp -v "${tmpdir}/.repo/gpg.key" "${repodir}"/
+fi
 
 # See https://github.com/actions/upload-pages-artifact#example-permissions-fix-for-linux
 chmod -c -R +rX "${repodir}"
 
 echo "dir=${repodir}" >>"${GITHUB_OUTPUT}"
-echo "keyring=${keyring_name}" >>"${GITHUB_OUTPUT}"
+if [[ -n "${signing_enabled}" ]]; then
+    echo "keyring=${keyring_name}" >>"${GITHUB_OUTPUT}"
+fi
