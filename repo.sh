@@ -73,6 +73,7 @@ version_schema: none
 maintainer: ${maintainer}
 description: ${repo_name} keyring
 homepage: ${homepage}
+mtime: ${keyring_version}
 contents:
 EOF
 
