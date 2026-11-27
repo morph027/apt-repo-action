@@ -8,7 +8,7 @@ version_schema: none
 maintainer: ${MAINTAINER}
 description: ${REPO_NAME} keyring
 homepage: ${HOMEPAGE}
-# RFC3339 timestamp of the newest key's creation date
+# RFC3339 timestamp of the newest self-signature (or creation date) of all keys
 mtime: ${KEYRING_MTIME}
 # flow sequence of {src: ..., dst: ...} entries, keeps this template valid YAML
 contents: ${KEYRING_CONTENTS}

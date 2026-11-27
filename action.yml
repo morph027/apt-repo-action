@@ -68,7 +68,7 @@ inputs:
       Workaround for immutable GH actions cache.
   import-from-repo-regex:
     description: >-
-      Regex to apply to imported packages, e.g. filter for `^.*arm64.*\.deb`.
+      Regex (find -regex, emacs syntax) to apply to imported packages, e.g. `^.*_\(arm64\|all\)\.deb$` for arm64 and architecture independent packages.
   import-from-repo-failure-allow:
     description: >-
       Do not fail on import errors (e.g. first run).
@@ -114,8 +114,9 @@ runs:
       uses: robinraju/release-downloader@v1.13
       with:
         repository: goreleaser/nfpm
+        # pinned: a different nfpm version may build a different keyring package for the same version
+        tag: v2.49.0
         fileName: '*Linux_x86_64.tar.gz'
-        latest: true
         extract: true
         out-file-path: "/tmp/"
     - name: Import from APT repo
@@ -123,6 +124,7 @@ runs:
       run: ${{ github.action_path }}/import.sh
       shell: bash
       env:
+        IMPORT_DIR: ${{ runner.temp }}/apt-repo-action-import
         IMPORT_FROM_REPO: ${{ inputs.import-from-repo-url }}
         IMPORT_FROM_REPO_REGEX: ${{ inputs.import-from-repo-regex }}
         IMPORT_FROM_REPO_FAILURE_ALLOW: ${{ inputs.import-from-repo-failure-allow }}
@@ -131,6 +133,7 @@ runs:
       run: ${GITHUB_ACTION_PATH}/repo.sh
       shell: bash
       env:
+        IMPORT_DIR: ${{ runner.temp }}/apt-repo-action-import
         REPO_NAME: ${{ inputs.repo-name }}
         SCAN_DIR: ${{ inputs.scan-dir }}
         KEYRING_NAME: ${{ inputs.keyring-name }}

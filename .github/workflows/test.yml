@@ -1,0 +1,53 @@
+---
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run shellcheck
+        # same version as in .pre-commit-config.yaml
+        run: pipx run --spec shellcheck-py==0.11.0.1 shellcheck ./*.sh tests/*.sh
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      # same setup and versions as in action.yml, Ubuntu's reprepro lacks the Limit option
+      - name: Detect runner distribution codename
+        id: runner-codename
+        run: echo "codename=$(lsb_release -sc)" >> "${GITHUB_OUTPUT}"
+      - name: Setup reprepro debian repository
+        uses: myci-actions/add-deb-repo@11
+        with:
+          repo: deb https://packaging.gitlab.io/reprepro-multiple-versions/${{ steps.runner-codename.outputs.codename }} ${{ steps.runner-codename.outputs.codename }} main
+          repo-name: reprepro-multiple-versions
+          keys-asc: https://packaging.gitlab.io/reprepro-multiple-versions/gpg.key
+          update: true
+      - name: Install reprepro and apt-mirror
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          packages: apt-mirror gettext-base reprepro
+      - name: Install nfpm
+        uses: robinraju/release-downloader@v1.13
+        with:
+          repository: goreleaser/nfpm
+          tag: v2.49.0
+          fileName: '*Linux_x86_64.tar.gz'
+          extract: true
+          out-file-path: /tmp/
+      - name: Run end-to-end test
+        run: tests/e2e.sh

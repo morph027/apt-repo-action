@@ -21,7 +21,7 @@ Can be deployed to GH pages using [upload-pages-artifact](https://github.com/act
 | `signing-key-passphrase` | `false` | `n/a` | Passphrase for `signing-key` (if the key is protected). Please use secrets! |
 | `allow-unsigned` | `false` | `false` | Set to `true` to explicitly publish an unsigned repo when `signing-key` is empty (no `SignWith`, no `gpg.key`, no keyring package). Without it, an empty `signing-key` fails the action. Not recommended, see [Unsigned repositories](#unsigned-repositories). |
 | `import-from-repo-url` | `false` | `n/a` | Import existing packages from this repo url. Workaround for immutable GH actions cache. |
-| `import-from-repo-regex` | `false` | `n/a` | Regex to apply to imported packages, e.g. filter for `^.*arm64.*\.deb`. |
+| `import-from-repo-regex` | `false` | `n/a` | Regex (`find -regex`, emacs syntax) to apply to imported packages, e.g. <code>^.*_\(arm64\&#124;all\)\.deb$</code> for arm64 and architecture independent packages. Filtered packages are not protected against republishing, see below. |
 | `import-from-repo-failure-allow` | `false` | `n/a` | Do not fail on import errors (e.g. first run). |
 | `maintainer` | `false` | `apt-repo-action@${GITHUB_REPOSITORY_OWNER}` | Package maintainer for keyring package (signed repos only). |
 | `homepage` | `false` | `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}` | Homepage for keyring package (signed repos only). |
@@ -142,3 +142,25 @@ reprepro database between workflow runs. To keep the current packages, you can s
             deb-arm64 https://your-github-handle.github.io/your-github-repo-name/ jammy main
 ...
 ```
+
+Packages are compared by name, version (without epoch) and architecture, plus sha256. Imported packages are treated as published and always win:
+
+* a rebuilt package that is identical to the published one is skipped
+* a rebuilt package with different content is not published (warning), as replacing a file under the same version causes `Hash Sum mismatch` errors on clients. Bump the version instead.
+* two new (not yet published) files with the same name, version and architecture but different content (e.g. non-reproducible builds in multiple jobs): the first one (sorted by path) is published, the others are skipped (warning)
+
+> [!NOTE]
+> Only imported packages (or packages in an existing reprepro db, see below) are protected, so `import-from-repo-url` must
+> cover every published distribution and architecture, and `import-from-repo-regex` must not filter out published packages.
+> Source packages are not imported by default.
+> Not covered: an `all` and an architecture specific package with the same name and version are not compared with each other,
+> and for source packages only the `.dsc` is compared (not the referenced tarballs).
+
+If `<scan-dir>/.repo` contains an existing reprepro state (`conf`, `db`, `pool`), packages in its db count as published too.
+Entries whose pool files are missing are removed first (only the affected architecture or source package, in every codename)
+and re-added if the package is available in the scan dir or the import.
+
+The keyring package version is the date of the newest self-signature of the signing key (e.g. `1:2022-09-26`),
+so extending the expiry or adding a uid or subkey publishes a new keyring package. Changes on the same day as the previous
+self-signature, third-party signatures or a changed `maintainer`/`homepage` keep the version, so the published keyring
+package is kept (with a warning).

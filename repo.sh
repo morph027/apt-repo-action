@@ -11,6 +11,8 @@ set -u
 repo_name="${REPO_NAME}"
 set +u
 scan_dir="${SCAN_DIR:-${PWD}}"
+# packages imported from the published repo (import.sh), may be empty
+import_dir="${IMPORT_DIR:-}"
 keyring_name="${KEYRING_NAME:-${repo_name}}-keyring"
 origin="${ORIGIN:-${repo_name}}"
 suite="${SUITE:-${repo_name}}"
@@ -46,8 +48,8 @@ if [[ -n "${signing_enabled}" ]]; then
     # import signing key, create keyring package
     install -d -m 700 ~/.gnupg/
     echo "allow-preset-passphrase" >>~/.gnupg/gpg-agent.conf
-    gpg --batch --import <<<"${SIGNING_KEY}" 2>&1 | tee /tmp/gpg.log
-    mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" /tmp/gpg.log | sort -u | grep -o "[0-9A-Z]*" | tail -n1)
+    gpg --batch --import <<<"${SIGNING_KEY}" 2>&1 | tee "${tmpdir}/gpg.log"
+    mapfile -t fingerprints < <(grep -o "key [0-9A-Z]*:" "${tmpdir}/gpg.log" | sort -u | grep -o "[0-9A-Z]*" | tail -n1)
     if [[ "${#fingerprints[@]}" -eq 0 ]]; then
         echo "::error title=Invalid signing-key::Could not import signing-key, see gpg output above."
         exit 1
@@ -61,14 +63,23 @@ if [[ -n "${signing_enabled}" ]]; then
         fi
         IFS=':' read -r -a pub < <(gpg --list-keys --with-colons "${fingerprint}" | grep pub --color=never)
         creation_date="${pub[5]}"
-        # newest key creation timestamp, used for version and reproducible mtime
-        if [[ "${creation_date}" -gt "${keyring_epoch}" ]]; then
-            keyring_epoch="${creation_date}"
+        # newest self-signature (key/uid/subkey binding, revocation) timestamp: changes whenever the exported key
+        # changes (e.g. extended expiry, new uid or subkey), so the keyring version gets bumped
+        key_id="${pub[4]}"
+        key_timestamp="$(gpg --list-sigs --with-colons "${fingerprint}" | awk -F: -v id="${key_id}" '($1 == "sig" || $1 == "rev") && $5 == id && $6 > max { max = $6 } END { print max + 0 }')"
+        if [[ "${key_timestamp}" -lt "${creation_date}" ]]; then
+            key_timestamp="${creation_date}"
         fi
+        # newest timestamp of all keys, used for version and reproducible mtime
+        if [[ "${key_timestamp}" -gt "${keyring_epoch}" ]]; then
+            keyring_epoch="${key_timestamp}"
+        fi
+        # file name keeps the creation date, so updated keys replace the installed file
         gpg --export "${fingerprint}" >"${keyring_name}-${creation_date}.gpg"
         keyring_files+=("${keyring_name}-${creation_date}.gpg")
     done
     # epoch prefix 1: keeps upgrades working from the former (unix timestamp) versions
+    # date of the newest self-signature (or creation date)
     keyring_version="$(date -u -d "@${keyring_epoch}" +%Y-%m-%d)"
     keyring_mtime="$(date -u -d "@${keyring_epoch}" +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -165,15 +176,87 @@ else
     done
     rm -f "${tmpdir}/.repo/gpg.key"
 fi
+
+# an existing reprepro db (e.g. .repo from a cache) may reference pool files which are missing: remove exactly
+# the entries referencing them (in every codename), so packages still available get re-added below and the
+# repo never lists files clients can't download
+if [[ -d "${tmpdir}/.repo/${repo_name}/db" ]]; then
+    pool_base="${tmpdir}/.repo/${repo_name}/"
+    $reprepro_basedir -v checkpool fast 2>&1 | tee "${tmpdir}/checkpool.log"
+    if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+        printf "\e[0;36mStarting repo cache cleanup ...\e[0m\n"
+        mapfile -t missing_files < <(sed -n "s|^Missing file '\(.*\)'!\$|\1|p" "${tmpdir}/checkpool.log")
+        missing_filekeys=()
+        for missing_file in "${missing_files[@]}"; do
+            missing_filekeys+=("${missing_file#"${pool_base}"}")
+        done
+        mapfile -t cleanup_codenames < <(sed -n 's/^[Cc][Oo][Dd][Ee][Nn][Aa][Mm][Ee]:[[:space:]]*//p' "${dist_confs[@]}" | sort -u)
+        for cleanup_codename in "${cleanup_codenames[@]}"; do
+            # entries referencing a missing file as "<arch>|<package>|<version>|<filekey>". list format: one line
+            # per entry, source packages continue with the remaining lines of their multi-line Files field
+            # shellcheck disable=SC2016
+            mapfile -t cleanup_entries < <(
+                $reprepro_basedir --list-format '@@|${$architecture}|${Package}|${Version}|${Filename}|${Directory}|${Files}\n' \
+                    listmatched "${cleanup_codename}" '*' |
+                    awk -v missing="$(printf '%s\n' "${missing_filekeys[@]}")" '
+                        function report(filekey) {
+                            if (filekey in is_missing) print arch "|" package "|" version "|" filekey
+                        }
+                        BEGIN {
+                            n = split(missing, list, "\n")
+                            for (i = 1; i <= n; i++) if (list[i] != "") is_missing[list[i]] = 1
+                        }
+                        /^@@\|/ {
+                            split($0, field, "|")
+                            arch = field[2]; package = field[3]; version = field[4]; directory = field[6]
+                            report(field[5])
+                            files_line = field[7]
+                        }
+                        !/^@@\|/ { files_line = $0 }
+                        # Files lines: "<md5> <size> <name>", relative to Directory
+                        arch == "source" && split(files_line, file, " ") == 3 { report(directory "/" file[3]) }
+                    ' | sort -t'|' -k1,3 -u
+            )
+            for cleanup_entry in "${cleanup_entries[@]}"; do
+                IFS='|' read -r cleanup_arch cleanup_package cleanup_version cleanup_filekey <<<"${cleanup_entry}"
+                echo "::warning title=Missing pool file::Removing ${cleanup_package} ${cleanup_version} (${cleanup_arch}) from ${cleanup_codename}, as ${cleanup_filekey} is missing in the pool."
+                if [[ "${cleanup_arch}" == "source" ]]; then
+                    # shellcheck disable=SC2016
+                    $reprepro_basedir -v removefilter "${cleanup_codename}" \
+                        '$Architecture (== source), Package (== '"${cleanup_package}"'), $Version (== '"${cleanup_version}"')'
+                else
+                    # only this file, e.g. other architectures of the same package stay
+                    $reprepro_basedir -v removefilter "${cleanup_codename}" "Filename (== ${cleanup_filekey})"
+                fi
+            done
+        done
+    fi
+fi
 mkdir -p "${scan_dir}/build-${codename}-dummy-dir-for-find-to-succeed"
 
 # add packages
-mapfile -t packages < <(find "${scan_dir}" -type f -regex '^.*\.\(deb\|dsc\)')
+# already published (imported) packages first: they win over rebuilt files with the same name, version and arch
+packages=()
+find_prune=()
+if [[ -n "${import_dir}" && -d "${import_dir}" ]]; then
+    mapfile -t packages < <(find "${import_dir}" -type f -regex '^.*\.\(deb\|dsc\)' | sort)
+    # don't scan the import dir twice if it is inside the scan dir
+    find_prune=(-path "$(realpath "${import_dir}")" -prune -o)
+fi
+published_count="${#packages[@]}"
+mapfile -t -O "${#packages[@]}" packages < <(find "$(realpath "${scan_dir}")" "${find_prune[@]}" -type f -regex '^.*\.\(deb\|dsc\)' -print | sort)
 
 includedebs=()
 includedscs=()
+# name_version_arch -> sha256 / file / published flag of the first file seen
+declare -A package_sha256 package_file package_published
 
-for package in "${packages[@]}"; do
+for index in "${!packages[@]}"; do
+    package="${packages[${index}]}"
+    published=""
+    if [[ "${index}" -lt "${published_count}" ]]; then
+        published="1"
+    fi
     if [ "${package##*.}" == "dsc" ]; then
         package_name="${package##*/}"
         package_name="${package_name%%_*}"
@@ -189,7 +272,24 @@ for package in "${packages[@]}"; do
         printf "\e[0;33mSkipping keyring package %s (repository is unsigned)\e[0m\n" "${package##*/}"
         continue
     fi
-    printf "\e[1;36m[%s %s] Checking for package %s %s (%s) in current repo cache ...\e[0m " "${codename}" "${components}" "${package_name}" "${package_version}" "${package_arch}"
+    printf "\e[1;36m[%s %s] Checking for package %s %s (%s) ...\e[0m " "${codename}" "${components}" "${package_name}" "${package_version}" "${package_arch}"
+    # same name, version and arch must never be published with different content (clients get hash sum mismatches).
+    # without epoch: it isn't part of the pool file name, so 1.0 and 1:1.0 collide in the pool
+    package_key="${package_name}_${package_version#*:}_${package_arch}"
+    sha256="$(sha256sum <"${package}" | cut -d' ' -f1)"
+    if [[ -n "${package_sha256[${package_key}]+x}" ]]; then
+        if [[ "${package_sha256[${package_key}]}" == "${sha256}" ]]; then
+            printf "\e[0;32mOK\e[0m (identical to %s)\n" "${package_file[${package_key}]}"
+        elif [[ -n "${package_published[${package_key}]}" ]]; then
+            printf "\e[0;33mKeeping published file\e[0m\n"
+            echo "::warning title=Package already published::${package} (${package_name} ${package_version} ${package_arch}) differs from the published ${package_file[${package_key}]} (sha256 ${sha256} != ${package_sha256[${package_key}]}). Keeping the published file, bump the version to publish the new one."
+        else
+            # e.g. non-reproducible builds of the same package in multiple jobs, first one (sorted by path) wins
+            printf "\e[0;33mKeeping first file\e[0m\n"
+            echo "::warning title=Conflicting package files::${package} (${package_name} ${package_version} ${package_arch}) differs from ${package_file[${package_key}]} (sha256 ${sha256} != ${package_sha256[${package_key}]}). Keeping ${package_file[${package_key}]}."
+        fi
+        continue
+    fi
     case "${package_arch}" in
     "all")
         # shellcheck disable=SC2016
@@ -200,16 +300,27 @@ for package in "${packages[@]}"; do
         filter='Package (=='"${package_name}"'), $Version (=='"${package_version}"'), $Architecture (=='"${package_arch}"')'
         ;;
     esac
-    if [ -d "${CI_PROJECT_DIR}/.repo/${repo_name}/db" ]; then
-        if $reprepro listfilter "${codename}" "${filter}" | grep -q '.*'; then
-            printf "\e[0;32mOK\e[0m\n"
+    if [ -d "${tmpdir}/.repo/${repo_name}/db" ]; then
+        # already in the repo db (e.g. .repo from a cache): published, "<arch>|<sha256>" (sha256 empty for sources)
+        # shellcheck disable=SC2016
+        db_entry="$($reprepro --list-format '${$architecture}|${SHA256}\n' listfilter "${codename}" "${filter}" | head -n1)"
+        if [[ -n "${db_entry}" ]]; then
+            db_sha256="${db_entry#*|}"
+            package_sha256["${package_key}"]="${db_sha256:-${sha256}}"
+            package_file["${package_key}"]="repo db"
+            package_published["${package_key}"]="1"
+            if [[ -n "${db_sha256}" && "${db_sha256}" != "${sha256}" ]]; then
+                printf "\e[0;33mKeeping published file\e[0m\n"
+                echo "::warning title=Package already published::${package} (${package_name} ${package_version} ${package_arch}) differs from the published one in the repo db (sha256 ${sha256} != ${db_sha256}). Keeping the published file, bump the version to publish the new one."
+            else
+                printf "\e[0;32mOK\e[0m (in repo db)\n"
+            fi
             continue
         fi
     fi
-    if grep -q "${package##*/}" <<<"${includedebs[@]}"; then
-        printf "\e[0;32mOK\e[0m\n"
-        continue
-    fi
+    package_sha256["${package_key}"]="${sha256}"
+    package_file["${package_key}"]="${package}"
+    package_published["${package_key}"]="${published}"
     printf "\e\033[0;38;5;166mAdding\e[0m\n"
     if [ "${package##*.}" == "dsc" ]; then
         includedscs+=("${package}")
@@ -233,22 +344,6 @@ for includedsc in "${includedscs[@]}"; do
         "${codename}" \
         "${includedsc}"
 done
-
-if ! $reprepro_basedir -v checkpool fast |& tee /tmp/missing; then
-    printf "\e[0;36mStarting repo cache cleanup ...\e[0m\n"
-    mapfile -t missingfiles < <(grep "Missing file" /tmp/log | grep --color=never -o "/.*\.deb")
-    for missingfile in "${missingfiles[@]}"; do
-        missingfile="${missingfile##*/}"
-        name="$(cut -d'_' -f 1 <<<"${missingfile}")"
-        version="$(cut -d'_' -f 2 <<<"${missingfile}")"
-        echo "cleanup missing file ${missingfile} from repo"
-        $reprepro \
-            -v \
-            remove \
-            "${codename}" \
-            "${name}=${version}"
-    done
-fi
 
 if [[ -z "${signing_enabled}" ]]; then
     # drop keyring package left over from a previously signed repo
