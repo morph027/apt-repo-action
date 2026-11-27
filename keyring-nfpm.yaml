@@ -1,0 +1,14 @@
+---
+# nfpm config template for the keyring package, rendered by repo.sh via envsubst
+name: ${KEYRING_NAME}
+arch: all
+epoch: 1
+version: ${KEYRING_VERSION}
+version_schema: none
+maintainer: ${MAINTAINER}
+description: ${REPO_NAME} keyring
+homepage: ${HOMEPAGE}
+# RFC3339 timestamp of the newest key's creation date
+mtime: ${KEYRING_MTIME}
+# flow sequence of {src: ..., dst: ...} entries, keeps this template valid YAML
+contents: ${KEYRING_CONTENTS}

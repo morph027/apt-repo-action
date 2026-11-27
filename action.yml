@@ -109,7 +109,7 @@ runs:
     - name: Install reprepro
       uses: awalsh128/cache-apt-pkgs-action@v1.6.3
       with:
-        packages: apt-mirror apt-transport-https reprepro
+        packages: apt-mirror apt-transport-https gettext-base reprepro
     - name: Install nfpm
       uses: robinraju/release-downloader@v1.13
       with:

@@ -2,6 +2,7 @@
 
 set -e
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tmpdir="$(mktemp -d)"
 repodir="$(mktemp -d)"
 
@@ -51,7 +52,7 @@ if [[ -n "${signing_enabled}" ]]; then
         echo "::error title=Invalid signing-key::Could not import signing-key, see gpg output above."
         exit 1
     fi
-    keyring_version=0
+    keyring_epoch=0
     keyring_files=()
     for fingerprint in "${fingerprints[@]}"; do
         keygrip="$(gpg --list-secret-keys --with-keygrip "${fingerprint}" | grep -m1 'Keygrip =' | grep -Eo "[0-9A-Z]{40}")"
@@ -60,29 +61,33 @@ if [[ -n "${signing_enabled}" ]]; then
         fi
         IFS=':' read -r -a pub < <(gpg --list-keys --with-colons "${fingerprint}" | grep pub --color=never)
         creation_date="${pub[5]}"
-        keyring_version=$(("${keyring_version}" + "${creation_date}"))
+        # newest key creation timestamp, used for version and reproducible mtime
+        if [[ "${creation_date}" -gt "${keyring_epoch}" ]]; then
+            keyring_epoch="${creation_date}"
+        fi
         gpg --export "${fingerprint}" >"${keyring_name}-${creation_date}.gpg"
         keyring_files+=("${keyring_name}-${creation_date}.gpg")
     done
+    # epoch prefix 1: keeps upgrades working from the former (unix timestamp) versions
+    keyring_version="$(date -u -d "@${keyring_epoch}" +%Y-%m-%d)"
+    keyring_mtime="$(date -u -d "@${keyring_epoch}" +%Y-%m-%dT%H:%M:%SZ)"
 
-    cat >"${tmpdir}/keyring-nfpm.yaml" <<EOF
-name: ${keyring_name}
-arch: all
-version: ${keyring_version}
-version_schema: none
-maintainer: ${maintainer}
-description: ${repo_name} keyring
-homepage: ${homepage}
-mtime: ${keyring_version}
-contents:
-EOF
-
+    keyring_contents=""
     for keyring_file in "${keyring_files[@]}"; do
-        cat >>"${tmpdir}/keyring-nfpm.yaml" <<EOF
-  - src: ${keyring_file}
-    dst: /etc/apt/trusted.gpg.d/
-EOF
+        keyring_contents+="${keyring_contents:+, }{src: ${keyring_file}, dst: /etc/apt/trusted.gpg.d/}"
     done
+
+    # render nfpm config template, only substitute the listed variables
+    # shellcheck disable=SC2016
+    KEYRING_NAME="${keyring_name}" \
+        KEYRING_VERSION="${keyring_version}" \
+        KEYRING_MTIME="${keyring_mtime}" \
+        KEYRING_CONTENTS="[${keyring_contents}]" \
+        MAINTAINER="${maintainer}" \
+        REPO_NAME="${repo_name}" \
+        HOMEPAGE="${homepage}" \
+        envsubst '${KEYRING_NAME} ${KEYRING_VERSION} ${KEYRING_MTIME} ${KEYRING_CONTENTS} ${MAINTAINER} ${REPO_NAME} ${HOMEPAGE}' \
+        <"${script_dir}/keyring-nfpm.yaml" >"${tmpdir}/keyring-nfpm.yaml"
 
     /tmp/nfpm package --config "${tmpdir}/keyring-nfpm.yaml" --packager deb
 fi
