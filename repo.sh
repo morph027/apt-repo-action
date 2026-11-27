@@ -11,8 +11,8 @@ set -u
 repo_name="${REPO_NAME}"
 set +u
 scan_dir="${SCAN_DIR:-${PWD}}"
-# packages imported from the published repo (import.sh), may be empty
-import_dir="${IMPORT_DIR:-}"
+# packages imported from the published repo (import.sh), same default as there
+import_dir="${IMPORT_DIR:-${RUNNER_TEMP:-/tmp}/apt-repo-action-import}"
 keyring_name="${KEYRING_NAME:-${repo_name}}-keyring"
 origin="${ORIGIN:-${repo_name}}"
 suite="${SUITE:-${repo_name}}"
@@ -21,6 +21,14 @@ codename="${CODENAME:-${repo_name}}"
 components="${COMPONENTS:-main}"
 architectures="${ARCHITECTURES:-amd64}"
 limit="${LIMIT:-0}"
+# section/priority for source packages (.dsc files usually have none, reprepro requires them)
+includedsc_options=()
+if [[ -n "${SECTION}" ]]; then
+    includedsc_options+=(-S "${SECTION}")
+fi
+if [[ -n "${PRIORITY}" ]]; then
+    includedsc_options+=(-P "${PRIORITY}")
+fi
 maintainer="${MAINTAINER:-apt-repo-action@${GITHUB_REPOSITORY_OWNER}}"
 homepage="${HOMEPAGE:-${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}}"
 # shellcheck disable=SC2153
@@ -177,9 +185,12 @@ else
     rm -f "${tmpdir}/.repo/gpg.key"
 fi
 
+# all codenames (trailing whitespace trimmed, field names are case-insensitive)
+mapfile -t all_codenames < <(sed -n 's/^codename:[[:space:]]*\(.*[^[:space:]]\)[[:space:]]*$/\1/Ip' "${dist_confs[@]}" | sort -u)
+
 # an existing reprepro db (e.g. .repo from a cache) may reference pool files which are missing: remove exactly
-# the entries referencing them (in every codename), so packages still available get re-added below and the
-# repo never lists files clients can't download
+# the entries referencing them (in every codename and component), so packages still available get re-added below
+# and the repo never lists files clients can't download
 if [[ -d "${tmpdir}/.repo/${repo_name}/db" ]]; then
     pool_base="${tmpdir}/.repo/${repo_name}/"
     $reprepro_basedir -v checkpool fast 2>&1 | tee "${tmpdir}/checkpool.log"
@@ -190,17 +201,22 @@ if [[ -d "${tmpdir}/.repo/${repo_name}/db" ]]; then
         for missing_file in "${missing_files[@]}"; do
             missing_filekeys+=("${missing_file#"${pool_base}"}")
         done
-        mapfile -t cleanup_codenames < <(sed -n 's/^[Cc][Oo][Dd][Ee][Nn][Aa][Mm][Ee]:[[:space:]]*//p' "${dist_confs[@]}" | sort -u)
-        for cleanup_codename in "${cleanup_codenames[@]}"; do
-            # entries referencing a missing file as "<arch>|<package>|<version>|<filekey>". list format: one line
+        for cleanup_codename in "${all_codenames[@]}"; do
+            # entries referencing a missing file as "<binary|source>|<package>|<version>|<filekey>", once per file
+            # (binary, removal covers all components and architectures) or source package. list format: one line
             # per entry, source packages continue with the remaining lines of their multi-line Files field
             # shellcheck disable=SC2016
             mapfile -t cleanup_entries < <(
                 $reprepro_basedir --list-format '@@|${$architecture}|${Package}|${Version}|${Filename}|${Directory}|${Files}\n' \
                     listmatched "${cleanup_codename}" '*' |
                     awk -v missing="$(printf '%s\n' "${missing_filekeys[@]}")" '
-                        function report(filekey) {
-                            if (filekey in is_missing) print arch "|" package "|" version "|" filekey
+                        function report(filekey,    type, key) {
+                            if (!(filekey in is_missing)) return
+                            type = (arch == "source") ? "source" : "binary"
+                            key = (type == "source") ? type "|" package "|" version : type "|" filekey
+                            if (key in seen) return
+                            seen[key] = 1
+                            print type "|" package "|" version "|" filekey
                         }
                         BEGIN {
                             n = split(missing, list, "\n")
@@ -215,12 +231,12 @@ if [[ -d "${tmpdir}/.repo/${repo_name}/db" ]]; then
                         !/^@@\|/ { files_line = $0 }
                         # Files lines: "<md5> <size> <name>", relative to Directory
                         arch == "source" && split(files_line, file, " ") == 3 { report(directory "/" file[3]) }
-                    ' | sort -t'|' -k1,3 -u
+                    '
             )
             for cleanup_entry in "${cleanup_entries[@]}"; do
-                IFS='|' read -r cleanup_arch cleanup_package cleanup_version cleanup_filekey <<<"${cleanup_entry}"
-                echo "::warning title=Missing pool file::Removing ${cleanup_package} ${cleanup_version} (${cleanup_arch}) from ${cleanup_codename}, as ${cleanup_filekey} is missing in the pool."
-                if [[ "${cleanup_arch}" == "source" ]]; then
+                IFS='|' read -r cleanup_type cleanup_package cleanup_version cleanup_filekey <<<"${cleanup_entry}"
+                echo "::warning title=Missing pool file::Removing ${cleanup_package} ${cleanup_version} (${cleanup_type}) from ${cleanup_codename}, as ${cleanup_filekey} is missing in the pool."
+                if [[ "${cleanup_type}" == "source" ]]; then
                     # shellcheck disable=SC2016
                     $reprepro_basedir -v removefilter "${cleanup_codename}" \
                         '$Architecture (== source), Package (== '"${cleanup_package}"'), $Version (== '"${cleanup_version}"')'
@@ -237,12 +253,17 @@ mkdir -p "${scan_dir}/build-${codename}-dummy-dir-for-find-to-succeed"
 # add packages
 # already published (imported) packages first: they win over rebuilt files with the same name, version and arch
 packages=()
-find_prune=()
+# never scan the import dir twice (if inside the scan dir) or the pool of an existing reprepro state: its packages
+# are in its db, files without db entry (e.g. removed by the cleanup above) must not come back
+prune_paths=("$(realpath -m "${scan_dir}/.repo")")
 if [[ -n "${import_dir}" && -d "${import_dir}" ]]; then
     mapfile -t packages < <(find "${import_dir}" -type f -regex '^.*\.\(deb\|dsc\)' | sort)
-    # don't scan the import dir twice if it is inside the scan dir
-    find_prune=(-path "$(realpath "${import_dir}")" -prune -o)
+    prune_paths+=("$(realpath "${import_dir}")")
 fi
+find_prune=()
+for prune_path in "${prune_paths[@]}"; do
+    find_prune+=(-path "${prune_path}" -prune -o)
+done
 published_count="${#packages[@]}"
 mapfile -t -O "${#packages[@]}" packages < <(find "$(realpath "${scan_dir}")" "${find_prune[@]}" -type f -regex '^.*\.\(deb\|dsc\)' -print | sort)
 
@@ -280,6 +301,9 @@ for index in "${!packages[@]}"; do
     if [[ -n "${package_sha256[${package_key}]+x}" ]]; then
         if [[ "${package_sha256[${package_key}]}" == "${sha256}" ]]; then
             printf "\e[0;32mOK\e[0m (identical to %s)\n" "${package_file[${package_key}]}"
+        elif [[ "${package_sha256[${package_key}]}" == "unknown" ]]; then
+            # source package in the repo db, its .dsc checksum isn't stored there
+            printf "\e[0;32mOK\e[0m (in repo db, source package not compared)\n"
         elif [[ -n "${package_published[${package_key}]}" ]]; then
             printf "\e[0;33mKeeping published file\e[0m\n"
             echo "::warning title=Package already published::${package} (${package_name} ${package_version} ${package_arch}) differs from the published ${package_file[${package_key}]} (sha256 ${sha256} != ${package_sha256[${package_key}]}). Keeping the published file, bump the version to publish the new one."
@@ -290,38 +314,49 @@ for index in "${!packages[@]}"; do
         fi
         continue
     fi
+    # Architecture is the package's own field ($Architecture is the index architecture, which also matches "all"
+    # packages listed in binary-amd64), so "all" and architecture specific packages aren't mixed up
     case "${package_arch}" in
-    "all")
+    "source")
         # shellcheck disable=SC2016
-        filter='Package (=='"${package_name}"'), $Version (=='"${package_version}"')'
+        filter='Package (=='"${package_name}"'), $Version (=='"${package_version}"'), $Architecture (== source)'
         ;;
     *)
         # shellcheck disable=SC2016
-        filter='Package (=='"${package_name}"'), $Version (=='"${package_version}"'), $Architecture (=='"${package_arch}"')'
+        filter='Package (=='"${package_name}"'), $Version (=='"${package_version}"'), Architecture (=='"${package_arch}"')'
         ;;
     esac
     if [ -d "${tmpdir}/.repo/${repo_name}/db" ]; then
-        # already in the repo db (e.g. .repo from a cache): published, "<arch>|<sha256>" (sha256 empty for sources)
+        # already in the repo db (e.g. .repo from a cache): "<filename>|<sha256>" (both empty for sources)
         # shellcheck disable=SC2016
-        db_entry="$($reprepro --list-format '${$architecture}|${SHA256}\n' listfilter "${codename}" "${filter}" | head -n1)"
+        db_entry="$($reprepro --list-format '@@|${Filename}|${SHA256}\n' listfilter "${codename}" "${filter}" | head -n1)"
         if [[ -n "${db_entry}" ]]; then
-            db_sha256="${db_entry#*|}"
-            package_sha256["${package_key}"]="${db_sha256:-${sha256}}"
-            package_file["${package_key}"]="repo db"
-            package_published["${package_key}"]="1"
-            if [[ -n "${db_sha256}" && "${db_sha256}" != "${sha256}" ]]; then
-                printf "\e[0;33mKeeping published file\e[0m\n"
-                echo "::warning title=Package already published::${package} (${package_name} ${package_version} ${package_arch}) differs from the published one in the repo db (sha256 ${sha256} != ${db_sha256}). Keeping the published file, bump the version to publish the new one."
+            IFS='|' read -r _ db_filename db_sha256 <<<"${db_entry}"
+            if [[ -n "${published}" && -n "${db_sha256}" && "${db_sha256}" != "${sha256}" ]]; then
+                # imported from the live repo, so the (cached) db is stale: replace its entry with the published file
+                printf "\e[0;33mReplacing stale repo db entry\e[0m\n"
+                echo "::warning title=Stale repo db::${package_name} ${package_version} (${package_arch}) in the repo db differs from the published ${package} (sha256 ${db_sha256} != ${sha256}). Replacing the db entry with the published file."
+                $reprepro_basedir -v removefilter "${codename}" "Filename (== ${db_filename})"
             else
-                printf "\e[0;32mOK\e[0m (in repo db)\n"
+                package_sha256["${package_key}"]="${db_sha256:-unknown}"
+                package_file["${package_key}"]="repo db"
+                package_published["${package_key}"]="1"
+                if [[ -n "${db_sha256}" && "${db_sha256}" != "${sha256}" ]]; then
+                    printf "\e[0;33mKeeping published file\e[0m\n"
+                    echo "::warning title=Package already published::${package} (${package_name} ${package_version} ${package_arch}) differs from the published one in the repo db (sha256 ${sha256} != ${db_sha256}). Keeping the published file, bump the version to publish the new one."
+                elif [[ -z "${db_sha256}" ]]; then
+                    printf "\e[0;32mOK\e[0m (in repo db, source package not compared)\n"
+                else
+                    printf "\e[0;32mOK\e[0m (in repo db)\n"
+                fi
+                continue
             fi
-            continue
         fi
     fi
     package_sha256["${package_key}"]="${sha256}"
     package_file["${package_key}"]="${package}"
     package_published["${package_key}"]="${published}"
-    printf "\e\033[0;38;5;166mAdding\e[0m\n"
+    printf "\e[0;38;5;166mAdding\e[0m\n"
     if [ "${package##*.}" == "dsc" ]; then
         includedscs+=("${package}")
     else
@@ -340,6 +375,7 @@ fi
 for includedsc in "${includedscs[@]}"; do
     $reprepro \
         -vvv \
+        "${includedsc_options[@]}" \
         includedsc \
         "${codename}" \
         "${includedsc}"
@@ -356,6 +392,12 @@ fi
 # always (re-)export, so a changed SignWith (signed <-> unsigned) is applied even if no packages changed.
 # reprepro writes InRelease/Release.gpg when signing and deletes stale ones otherwise.
 $reprepro_basedir -v export
+
+# never publish an index listing files missing in the pool (clients get 404s)
+if ! $reprepro_basedir checkpool fast; then
+    echo "::error title=Missing pool files::The repository references files missing in the pool, see checkpool output above."
+    exit 1
+fi
 
 cp -rv "${tmpdir}/.repo/${repo_name}"/{dists,pool} "${repodir}"/
 if [[ -n "${signing_enabled}" ]]; then

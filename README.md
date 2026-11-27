@@ -16,6 +16,8 @@ Can be deployed to GH pages using [upload-pages-artifact](https://github.com/act
 | `codename` | `false` | `${{ inputs.repo-name }}` | [Codename](https://wiki.debian.org/DebianRepository/Format#Codename) |
 | `components` | `false` | `main` | [Components](https://wiki.debian.org/DebianRepository/Format#Components) |
 | `architectures` | `false` | `amd64` | [Architectures](https://wiki.debian.org/DebianRepository/Format#Architectures) |
+| `section` | `false` | `n/a` | Section for source packages (`.dsc`), which usually don't contain one. reprepro needs a section and priority to include sources. |
+| `priority` | `false` | `n/a` | Priority for source packages (`.dsc`), see `section`. |
 | `limit` | `false` | `0` | How many package versions to keep (0 = unlimited). |
 | `signing-key` | `false`* | `n/a` | **Recommended.** Private gpg key for signing. *Required unless `allow-unsigned` is `true`. Please use secrets! |
 | `signing-key-passphrase` | `false` | `n/a` | Passphrase for `signing-key` (if the key is protected). Please use secrets! |
@@ -156,9 +158,12 @@ Packages are compared by name, version (without epoch) and architecture, plus sh
 > Not covered: an `all` and an architecture specific package with the same name and version are not compared with each other,
 > and for source packages only the `.dsc` is compared (not the referenced tarballs).
 
-If `<scan-dir>/.repo` contains an existing reprepro state (`conf`, `db`, `pool`), packages in its db count as published too.
-Entries whose pool files are missing are removed first (only the affected architecture or source package, in every codename)
-and re-added if the package is available in the scan dir or the import.
+If `<scan-dir>/.repo` contains an existing reprepro state (`conf`, `db`, `pool`), packages in its db count as published too
+(source packages can't be compared, as the db doesn't store the `.dsc` checksum). If an imported package differs from the
+db (e.g. a stale cache), the imported one wins. Entries whose pool files are missing are removed first (only the affected
+file, or the source package, in every codename and component) and re-added if the package is available in the scan dir or
+the import. Files in `<scan-dir>/.repo` itself are not scanned. The action fails if the final repository still references
+missing pool files.
 
 The keyring package version is the date of the newest self-signature of the signing key (e.g. `1:2022-09-26`),
 so extending the expiry or adding a uid or subkey publishes a new keyring package. Changes on the same day as the previous

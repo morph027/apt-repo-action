@@ -39,10 +39,10 @@ inputs:
       Architectures. If unset, defaults to amd64.
   section:
     description: >-
-      Section (Optional)
+      Section for source packages (.dsc), which usually don't contain one (Optional, required by reprepro to include sources).
   priority:
     description: >-
-      Priority (Optional)
+      Priority for source packages (.dsc), which usually don't contain one (Optional, required by reprepro to include sources).
   limit:
     description: >-
       How many package versions to keep.
@@ -69,6 +69,7 @@ inputs:
   import-from-repo-regex:
     description: >-
       Regex (find -regex, emacs syntax) to apply to imported packages, e.g. `^.*_\(arm64\|all\)\.deb$` for arm64 and architecture independent packages.
+      Filtered out packages are not protected against republishing with different content.
   import-from-repo-failure-allow:
     description: >-
       Do not fail on import errors (e.g. first run).
@@ -150,3 +151,5 @@ runs:
         MAINTAINER: ${{ inputs.maintainer }}
         HOMEPAGE: ${{ inputs.homepage }}
         OVERRIDE: ${{ inputs.override }}
+        SECTION: ${{ inputs.section }}
+        PRIORITY: ${{ inputs.priority }}

@@ -2,21 +2,14 @@
 
 set -e
 
-# packages imported from the published repo, read by repo.sh
-import_dir="${IMPORT_DIR:-}"
-if [[ -n "${import_dir}" ]]; then
-    # start clean, so a previous run of the action in the same job doesn't leak its packages
-    rm -rf "${import_dir}"
-fi
+# packages imported from the published repo, read by repo.sh (same default there)
+import_dir="${IMPORT_DIR:-${RUNNER_TEMP:-/tmp}/apt-repo-action-import}"
+# start clean, so a previous run of the action in the same job doesn't leak its packages
+rm -rf "${import_dir}"
 
 if [[ -z "${IMPORT_FROM_REPO}" ]]; then
     echo "::notice title=Skipping::Skipping import"
     exit 0
-fi
-
-if [[ -z "${import_dir}" ]]; then
-    echo "::error title=Missing IMPORT_DIR::IMPORT_DIR must be set to import packages."
-    exit 1
 fi
 
 tmpdir="$(mktemp -d)"
